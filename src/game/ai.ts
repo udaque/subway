@@ -131,9 +131,11 @@ function aiHard(
 ): Action {
   const enemyHq = state.hq[0]!;
 
-  // 1) 상대 본진을 지금 점령할 수 있으면 즉시 승리
-  const kill = options.find((o) => o.id === enemyHq);
-  if (kill) return { type: 'capture', station: kill.id };
+  // 1) 상대 본진을 지금 점령할 수 있으면 즉시 승리 (전멸전 제외)
+  if (state.mode !== 'annihilation') {
+    const kill = options.find((o) => o.id === enemyHq);
+    if (kill) return { type: 'capture', station: kill.id };
+  }
 
   const lateGame =
     state.mode === 'turnLimit' && state.round > state.turnLimit * 0.6;
@@ -148,8 +150,8 @@ function aiHard(
     score += (st.lines.length - 1) * 0.8 + (neighbors(id).length - 2) * 0.25;
     // 점령 후 지키기 좋은 역
     if (st.depth === 'deep') score += 0.4;
-    // 상대 땅 빼앗기 = 상대 생산력 감소이기도 함
-    if (info.enemyOwned) score += 1.0;
+    // 상대 땅 빼앗기 = 상대 생산력 감소이기도 함 (전멸전에선 그게 곧 승리 조건)
+    if (info.enemyOwned) score += state.mode === 'annihilation' ? 1.8 : 1.0;
 
     if (lateGame) {
       // 정복전 후반: 역 개수가 곧 점수 → 싸게 많이

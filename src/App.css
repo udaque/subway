@@ -409,6 +409,10 @@ body {
   margin: 8px 0 0;
 }
 
+.mode-grid-3 .mode-card:last-child {
+  grid-column: 1 / -1;
+}
+
 .mode-card {
   background: #21262f;
   border: 2px solid #2c323d;

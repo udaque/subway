@@ -202,8 +202,22 @@ export function applyAction(state: GameState, action: Action): GameState {
         ],
       };
 
-      // 본진 함락 = 양 모드 공통 즉시 승리
       const enemy = (1 - player) as PlayerId;
+
+      // 전멸전: 본진 함락으로 끝나지 않고, 상대 역이 0개가 되면 승리
+      if (state.mode === 'annihilation') {
+        if (countStations(next, enemy) === 0) {
+          return {
+            ...next,
+            phase: 'over',
+            winner: player,
+            log: [...next.log, `P${player + 1} 승리 — 상대 전멸!`],
+          };
+        }
+        return next;
+      }
+
+      // 본진 함락전/정복전: 상대 본진 점령 시 즉시 승리
       if (state.hq[enemy] === action.station) {
         return {
           ...next,

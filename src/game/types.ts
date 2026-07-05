@@ -31,7 +31,7 @@ export interface Edge {
 export type PlayerId = 0 | 1;
 export type Owner = PlayerId | null;
 
-export type VictoryMode = 'hq' | 'turnLimit';
+export type VictoryMode = 'hq' | 'turnLimit' | 'annihilation';
 
 export type Phase = 'pickHQ' | 'playing' | 'over';
 

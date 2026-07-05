@@ -62,7 +62,7 @@ export default function SetupScreen({ onStart }: Props) {
         )}
 
         <div className="section-label">승리 조건</div>
-        <div className="mode-grid">
+        <div className="mode-grid mode-grid-3">
           <button
             className={`mode-card ${mode === 'hq' ? 'selected' : ''}`}
             onClick={() => setMode('hq')}
@@ -76,6 +76,13 @@ export default function SetupScreen({ onStart }: Props) {
           >
             <div className="mode-name">🗺️ 정복전</div>
             <div className="mode-desc">제한 라운드 후 더 많은 역을 가진 쪽이 승리</div>
+          </button>
+          <button
+            className={`mode-card ${mode === 'annihilation' ? 'selected' : ''}`}
+            onClick={() => setMode('annihilation')}
+          >
+            <div className="mode-name">⚔️ 전멸전</div>
+            <div className="mode-desc">상대의 모든 역을 점령해야 승리 — 본진을 잃어도 게임은 계속된다</div>
           </button>
         </div>
 
