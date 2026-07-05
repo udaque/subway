@@ -7,6 +7,7 @@ interface Props {
   playerLabels: [string, string];
   aiThinking: boolean;
   onEndTurn: () => void;
+  onDraftDone: () => void;
   onRestart: () => void;
 }
 
@@ -45,10 +46,18 @@ function PlayerCard({
   );
 }
 
-export default function Hud({ state, playerLabels, aiThinking, onEndTurn, onRestart }: Props) {
+export default function Hud({
+  state,
+  playerLabels,
+  aiThinking,
+  onEndTurn,
+  onDraftDone,
+  onRestart,
+}: Props) {
   const banner = (() => {
-    if (state.phase === 'pickHQ') {
-      return `${playerLabels[state.current]}: 본진으로 삼을 역을 선택하세요 (상대 본진에서 6정거장 이상)`;
+    if (state.phase === 'draft') {
+      if (aiThinking) return '🤖 AI가 시작 역을 고르는 중…';
+      return `${playerLabels[state.current]}: AP로 시작 역들을 고르세요 — 첫 역이 본진, 남은 AP는 게임에서 사용`;
     }
     if (state.phase === 'over') {
       return state.winner === 'draw'
@@ -85,6 +94,16 @@ export default function Hud({ state, playerLabels, aiThinking, onEndTurn, onRest
           <PlayerCard state={state} player={1} label={playerLabels[1]} />
         </div>
         <div className="hud-actions">
+          {state.phase === 'draft' && (
+            <button
+              className="btn-end-turn"
+              style={{ background: PLAYER_COLORS[state.current] }}
+              disabled={aiThinking}
+              onClick={onDraftDone}
+            >
+              선택 완료
+            </button>
+          )}
           {state.phase === 'playing' && (
             <button
               className="btn-end-turn"

@@ -5,12 +5,12 @@ import Hud from './components/Hud';
 import SetupScreen, { type GameConfig } from './components/SetupScreen';
 import {
   applyAction,
-  canPickHq,
+  canDraftPick,
   capturableStations,
   createGame,
   ownedStations,
 } from './game/engine';
-import { aiNextAction, aiPickHq, DIFFICULTY_LABEL } from './game/ai';
+import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
 import { STATIONS } from './data/stations';
 import type { GameState } from './game/types';
 import './App.css';
@@ -28,12 +28,12 @@ export default function App() {
   // AI 턴 자동 진행 (행동 사이 딜레이를 둬서 진행이 보이게)
   useEffect(() => {
     if (!isAiTurn || !state || !config) return;
-    const delay = state.phase === 'pickHQ' ? AI_PICK_DELAY : AI_MOVE_DELAY;
+    const delay = state.phase === 'draft' ? AI_PICK_DELAY : AI_MOVE_DELAY;
     const timer = setTimeout(() => {
       setState((s) => {
         if (!s || s.phase === 'over' || s.current !== 1) return s;
-        if (s.phase === 'pickHQ') {
-          return applyAction(s, { type: 'pickHQ', station: aiPickHq(s, config.difficulty) });
+        if (s.phase === 'draft') {
+          return applyAction(s, aiDraftAction(s, config.difficulty));
         }
         return applyAction(s, aiNextAction(s, config.difficulty));
       });
@@ -43,10 +43,10 @@ export default function App() {
 
   const highlights: MapHighlights = useMemo(() => {
     if (!state || isAiTurn) return { capturable: new Map(), pickable: null };
-    if (state.phase === 'pickHQ') {
+    if (state.phase === 'draft') {
       return {
         capturable: new Map(),
-        pickable: new Set(STATIONS.filter((s) => canPickHq(state, s.id)).map((s) => s.id)),
+        pickable: new Set(STATIONS.filter((s) => canDraftPick(state, s.id)).map((s) => s.id)),
       };
     }
     if (state.phase === 'playing') {
@@ -75,7 +75,7 @@ export default function App() {
     if (isAiTurn) return;
     setState((s) => {
       if (!s) return s;
-      if (s.phase === 'pickHQ') return applyAction(s, { type: 'pickHQ', station: id });
+      if (s.phase === 'draft') return applyAction(s, { type: 'draftPick', station: id });
       if (s.phase === 'playing') return applyAction(s, { type: 'capture', station: id });
       return s;
     });
@@ -91,10 +91,14 @@ export default function App() {
       <Hud
         state={state}
         playerLabels={playerLabels}
-        aiThinking={isAiTurn && state.phase === 'playing'}
+        aiThinking={isAiTurn}
         onEndTurn={() => {
           if (isAiTurn) return;
           setState((s) => (s ? applyAction(s, { type: 'endTurn' }) : s));
+        }}
+        onDraftDone={() => {
+          if (isAiTurn) return;
+          setState((s) => (s ? applyAction(s, { type: 'draftDone' }) : s));
         }}
         onRestart={restart}
       />

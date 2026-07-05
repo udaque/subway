@@ -27,8 +27,12 @@ export const RULES = {
   enemyOwnedSurcharge: 1,
   /** 한강 도하 비용 배율 */
   riverCostMultiplier: 1.5,
-  /** 시작 AP (선공 / 후공) */
-  startingAp: [6, 8] as const,
+  /** 시작 AP — 드래프트(시작 역 선택)와 초반 운영에 함께 사용 */
+  startingAp: [10, 10] as const,
+  /** 드래프트: 역 하나 선택 기본 비용 */
+  draftBaseCost: 1,
+  /** 드래프트: 내 영토와 인접하지 않은 역 선택 시 추가 비용 */
+  draftDisconnectedSurcharge: 1,
   /** AP 보유 상한: base + perStation × 점령 역 수 */
   apCapBase: 10,
   apCapPerStation: 2,
@@ -123,6 +127,50 @@ export function capturableStations(state: GameState): Map<string, CaptureInfo> {
   return result;
 }
 
+// ── 드래프트 (시작 역 선택) ─────────────────────────────────
+export interface DraftInfo {
+  cost: number;
+  /** 환승 가산 비용 (노선 수 - 1) */
+  transferSurcharge: number;
+  /** 내 영토와 인접하지 않아 +1이 붙었는지 */
+  disconnected: boolean;
+  /** 이 선택이 첫 선택(=본진)인지 */
+  first: boolean;
+}
+
+/**
+ * 현재 플레이어가 드래프트에서 해당 역을 고를 때의 비용 정보.
+ * 고를 수 없는 역(이미 소유됨, 첫 선택인데 상대 본진과 너무 가까움)이면 null.
+ */
+export function draftInfo(state: GameState, station: string): DraftInfo | null {
+  if (state.phase !== 'draft') return null;
+  const player = state.current;
+  if (state.draftDone[player]) return null;
+  if (state.owners[station] != null) return null;
+  const st = STATION_BY_ID[station];
+  if (!st) return null;
+
+  const first = state.hq[player] === null;
+  const transferSurcharge = st.lines.length - 1;
+  let disconnected = false;
+  if (first) {
+    const otherHq = state.hq[(1 - player) as PlayerId];
+    if (otherHq && graphDistance(otherHq, station) < RULES.minHqDistance) return null;
+  } else {
+    disconnected = !neighbors(station).some((n) => state.owners[n] === player);
+  }
+  const cost =
+    RULES.draftBaseCost +
+    transferSurcharge +
+    (disconnected ? RULES.draftDisconnectedSurcharge : 0);
+  return { cost, transferSurcharge, disconnected, first };
+}
+
+export function canDraftPick(state: GameState, station: string): boolean {
+  const info = draftInfo(state, station);
+  return info !== null && info.cost <= state.ap[state.current];
+}
+
 // ── 상태 생성/전이 ──────────────────────────────────────────
 export function createGame(mode: VictoryMode, turnLimit = RULES.defaultTurnLimit): GameState {
   return {
@@ -130,21 +178,14 @@ export function createGame(mode: VictoryMode, turnLimit = RULES.defaultTurnLimit
     turnLimit,
     round: 1,
     current: 0,
-    phase: 'pickHQ',
+    phase: 'draft',
     owners: {},
     hq: [null, null],
     ap: [RULES.startingAp[0], RULES.startingAp[1]],
+    draftDone: [false, false],
     winner: null,
     log: [],
   };
-}
-
-export function canPickHq(state: GameState, station: string): boolean {
-  if (state.phase !== 'pickHQ') return false;
-  if (state.owners[station] != null) return false;
-  const otherHq = state.hq[state.current === 0 ? 1 : 0];
-  if (otherHq && graphDistance(otherHq, station) < RULES.minHqDistance) return false;
-  return true;
 }
 
 function countStations(state: GameState, player: PlayerId): number {
@@ -166,20 +207,46 @@ export function applyAction(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state;
 
   switch (action.type) {
-    case 'pickHQ': {
-      if (!canPickHq(state, action.station)) return state;
+    case 'draftPick': {
       const player = state.current;
-      const hq: GameState['hq'] = [...state.hq];
-      hq[player] = action.station;
+      const info = draftInfo(state, action.station);
+      if (!info || info.cost > state.ap[player]) return state;
+
       const owners = { ...state.owners, [action.station]: player };
-      const bothPicked = hq[0] !== null && hq[1] !== null;
+      const ap: GameState['ap'] = [...state.ap];
+      ap[player] -= info.cost;
+      const hq: GameState['hq'] = [...state.hq];
+      if (info.first) hq[player] = action.station;
+
+      const other = (1 - player) as PlayerId;
       return {
         ...state,
-        hq,
         owners,
-        current: bothPicked ? 0 : ((1 - player) as PlayerId),
-        phase: bothPicked ? 'playing' : 'pickHQ',
-        log: [...state.log, `P${player + 1} 본진: ${action.station}`],
+        ap,
+        hq,
+        current: state.draftDone[other] ? player : other,
+        log: [
+          ...state.log,
+          `P${player + 1} ${info.first ? '본진' : '시작 역'}: ${action.station} (-${info.cost}AP)`,
+        ],
+      };
+    }
+
+    case 'draftDone': {
+      if (state.phase !== 'draft') return state;
+      const player = state.current;
+      // 최소 한 역(본진)은 골라야 종료 가능
+      if (state.hq[player] === null) return state;
+      const draftDone: GameState['draftDone'] = [...state.draftDone];
+      draftDone[player] = true;
+      const other = (1 - player) as PlayerId;
+      const bothDone = draftDone[other];
+      return {
+        ...state,
+        draftDone,
+        phase: bothDone ? 'playing' : 'draft',
+        current: bothDone ? 0 : other,
+        log: [...state.log, `P${player + 1} 시작 역 선택 완료${bothDone ? ' — 게임 시작!' : ''}`],
       };
     }
 

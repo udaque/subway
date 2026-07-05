@@ -1,8 +1,8 @@
 import { STATION_BY_ID, STATIONS } from '../data/stations';
 import {
   apCap,
-  canPickHq,
   capturableStations,
+  draftInfo,
   playerIncome,
   stationProduction,
   type CaptureInfo,
@@ -45,9 +45,13 @@ function areaValue(center: Station, radius: number): number {
   return sum;
 }
 
-// ── 본진 선택 ───────────────────────────────────────────────
-export function aiPickHq(state: GameState, difficulty: Difficulty): string {
-  const candidates = STATIONS.filter((s) => canPickHq(state, s.id));
+// ── 드래프트 (시작 역 선택) ─────────────────────────────────
+function pickDraftHq(state: GameState, difficulty: Difficulty): string {
+  const ap = state.ap[AI];
+  const candidates = STATIONS.filter((s) => {
+    const info = draftInfo(state, s.id);
+    return info !== null && info.cost <= ap;
+  });
   if (candidates.length === 0) return STATIONS[0].id;
 
   if (difficulty === 'easy') return pick(candidates).id;
@@ -57,9 +61,10 @@ export function aiPickHq(state: GameState, difficulty: Difficulty): string {
   let bestScore = -Infinity;
   for (const c of candidates) {
     let score = areaValue(c, difficulty === 'hard' ? 3 : 2);
-    // 심층/지하 본진 선호 (방어 유리)
+    // 심층/지하 본진 선호 (방어 유리), 환승 본진은 선택 비용이 비싼 것 감안
     if (c.depth === 'deep') score += 2;
     else if (c.depth === 'underground') score += 1;
+    score -= (c.lines.length - 1) * 0.5;
     if (difficulty === 'hard' && enemyHq) {
       // 너무 붙지도, 맵 끝에 고립되지도 않게
       const d = graphDistance(c.id, enemyHq);
@@ -73,6 +78,42 @@ export function aiPickHq(state: GameState, difficulty: Difficulty): string {
     }
   }
   return best.id;
+}
+
+/** 드래프트 단계에서 AI의 다음 행동 (역 선택 또는 선택 완료) */
+export function aiDraftAction(state: GameState, difficulty: Difficulty): Action {
+  if (state.phase !== 'draft' || state.current !== AI) return { type: 'draftDone' };
+
+  // 첫 선택 = 본진
+  if (state.hq[AI] === null) {
+    return { type: 'draftPick', station: pickDraftHq(state, difficulty) };
+  }
+
+  const ap = state.ap[AI];
+  // 초반 공격/방어용 AP를 남겨둔다
+  const reserve = difficulty === 'easy' ? 6 : difficulty === 'normal' ? 4 : 3;
+  if (ap <= reserve) return { type: 'draftDone' };
+  if (difficulty === 'easy' && Math.random() < 0.4) return { type: 'draftDone' };
+
+  const hq = state.hq[AI]!;
+  let best: { id: string; score: number } | null = null;
+  for (const s of STATIONS) {
+    if (state.owners[s.id] != null) continue;
+    const info = draftInfo(state, s.id);
+    if (!info || info.cost > ap) continue;
+    let score = stationProduction(s, false) / info.cost;
+    if (difficulty === 'hard') {
+      score += (s.lines.length - 1) * 0.15 + (info.disconnected ? -0.1 : 0.25);
+      // 본진에서 너무 먼 고립 영토는 지키기 어렵다
+      score -= Math.min(graphDistance(hq, s.id), 12) * 0.05;
+    } else {
+      score += info.disconnected ? -0.2 : 0.1;
+    }
+    score += Math.random() * 0.1;
+    if (!best || score > best.score) best = { id: s.id, score };
+  }
+  if (!best || best.score < 1.0) return { type: 'draftDone' };
+  return { type: 'draftPick', station: best.id };
 }
 
 // ── 턴 진행 ────────────────────────────────────────────────

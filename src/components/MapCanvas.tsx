@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EDGES, LINE_BADGE, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
 import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
-import { isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
+import { draftInfo, isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
 
 export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff'] as const;
 export const NEUTRAL_COLOR = '#f0ece2';
@@ -373,6 +373,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
   // ── 툴팁 ─────────────────────────────────────────────────
   const hoveredStation = hovered ? STATION_BY_ID[hovered] : null;
   const hoveredCap = hovered ? highlights.capturable.get(hovered) : undefined;
+  const hoveredDraft = hovered && state.phase === 'draft' ? draftInfo(state, hovered) : null;
 
   return (
     <div
@@ -441,6 +442,16 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
             생산 +{stationProduction(hoveredStation, isHqStation(state, hoveredStation.id))}/턴
             {' · '}방어 {stationDefense(hoveredStation, isHqStation(state, hoveredStation.id))}
           </div>
+          {hoveredDraft && (
+            <div className="tooltip-cost">
+              <div>선택 비용 {hoveredDraft.cost}AP{hoveredDraft.first && ' — 본진'}</div>
+              <div className="tooltip-breakdown">
+                기본 {RULES.draftBaseCost}
+                {hoveredDraft.transferSurcharge > 0 && ` + 환승 ${hoveredDraft.transferSurcharge}`}
+                {hoveredDraft.disconnected && ` + 떨어진 지역 ${RULES.draftDisconnectedSurcharge}`}
+              </div>
+            </div>
+          )}
           {hoveredCap && (
             <div className="tooltip-cost">
               <div>점령 비용 {hoveredCap.cost}AP</div>

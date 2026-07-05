@@ -33,7 +33,7 @@ export type Owner = PlayerId | null;
 
 export type VictoryMode = 'hq' | 'turnLimit' | 'annihilation';
 
-export type Phase = 'pickHQ' | 'playing' | 'over';
+export type Phase = 'draft' | 'playing' | 'over';
 
 export interface GameState {
   mode: VictoryMode;
@@ -43,13 +43,17 @@ export interface GameState {
   current: PlayerId;
   phase: Phase;
   owners: Record<string, Owner>;
+  /** 각 플레이어가 처음 고른 역 = 본진 */
   hq: [string | null, string | null];
   ap: [number, number];
+  /** 드래프트(시작 역 선택) 종료 여부 */
+  draftDone: [boolean, boolean];
   winner: PlayerId | 'draw' | null;
   log: string[];
 }
 
 export type Action =
-  | { type: 'pickHQ'; station: string }
+  | { type: 'draftPick'; station: string }
+  | { type: 'draftDone' }
   | { type: 'capture'; station: string }
   | { type: 'endTurn' };
