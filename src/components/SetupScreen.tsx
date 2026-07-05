@@ -26,7 +26,7 @@ export default function SetupScreen({ onStart }: Props) {
         <h1>
           지하철 <span className="accent">땅따먹기</span>
         </h1>
-        <p className="setup-sub">서울 지하철 1~9호선 · 턴제 영토전</p>
+        <p className="setup-sub">수도권 전철 전 노선 · 턴제 영토전</p>
 
         <div className="section-label">상대</div>
         <div className="mode-grid">
@@ -82,7 +82,7 @@ export default function SetupScreen({ onStart }: Props) {
         {mode === 'turnLimit' && (
           <div className="limit-row">
             <span>라운드 수</span>
-            {[10, 15, 20, 30].map((n) => (
+            {[10, 20, 30, 50].map((n) => (
               <button
                 key={n}
                 className={`chip ${turnLimit === n ? 'selected' : ''}`}

@@ -15,8 +15,9 @@ export const RULES = {
   productionByTier: { downtown: 3, normal: 2, terminal: 1 } as const,
   /** 방어 기본치: 지상 / 지하 / 심층 */
   defenseByDepth: { surface: 0, underground: 1, deep: 2 } as const,
-  /** 환승역: 추가 노선 1개당 생산 +1 */
+  /** 환승역: 추가 노선 1개당 생산 +1 (최대 +3) */
   transferProductionBonus: 1,
+  transferProductionCap: 3,
   /** 본진 보너스 */
   hqProductionBonus: 1,
   hqDefenseBonus: 2,
@@ -32,7 +33,7 @@ export const RULES = {
   apCapBase: 10,
   apCapPerStation: 2,
   /** 두 본진 사이 최소 거리 (엣지 수) */
-  minHqDistance: 6,
+  minHqDistance: 8,
   /** 턴 리밋 모드 기본 라운드 수 */
   defaultTurnLimit: 20,
 };
@@ -41,7 +42,7 @@ export const RULES = {
 export function stationProduction(st: Station, isHq: boolean): number {
   return (
     RULES.productionByTier[st.cityTier] +
-    (st.lines.length - 1) * RULES.transferProductionBonus +
+    Math.min(RULES.transferProductionCap, (st.lines.length - 1) * RULES.transferProductionBonus) +
     (isHq ? RULES.hqProductionBonus : 0)
   );
 }

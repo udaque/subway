@@ -25,12 +25,22 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** 반경 내 역들의 생산량 합 (본진 주변 경제력 평가) */
+/** 반경 내 역들의 생산량 합 (본진 주변 경제력 평가) — BFS 한 번으로 계산 */
 function areaValue(center: Station, radius: number): number {
-  let sum = 0;
-  for (const s of STATIONS) {
-    const d = graphDistance(center.id, s.id);
-    if (d <= radius) sum += stationProduction(s, false) / (d + 1);
+  let sum = stationProduction(center, false);
+  const visited = new Set([center.id]);
+  let frontier = [center.id];
+  for (let d = 1; d <= radius; d++) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const n of neighbors(id)) {
+        if (visited.has(n)) continue;
+        visited.add(n);
+        next.push(n);
+        sum += stationProduction(STATION_BY_ID[n], false) / (d + 1);
+      }
+    }
+    frontier = next;
   }
   return sum;
 }

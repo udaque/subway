@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EDGES, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
+import { EDGES, LINE_BADGE, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
 import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
 import { isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
@@ -430,7 +430,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
           <div className="tooltip-lines">
             {hoveredStation.lines.map((l) => (
               <span key={l} className="line-badge" style={{ background: LINE_COLORS[l] }}>
-                {l}
+                {LINE_BADGE[l]}
               </span>
             ))}
             <span className="tooltip-tags">
