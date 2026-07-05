@@ -4,7 +4,7 @@ import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
 import { draftInfo, isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
 
-export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff'] as const;
+export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff', '#b06bff', '#2fd6c3'] as const;
 /** 중립 역 채움색 — 생산 등급이 한눈에 보이도록 */
 export const TIER_FILL = {
   downtown: '#ffd980', // 도심핵심 (생산 3)

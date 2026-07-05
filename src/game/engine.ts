@@ -31,7 +31,7 @@ export const RULES = {
   /** 한강 도하 비용 배율 */
   riverCostMultiplier: 1.5,
   /** 시작 AP — 드래프트(시작 역 선택)와 초반 운영에 함께 사용 */
-  startingAp: [10, 10] as const,
+  startingAp: 10,
   /** 드래프트: 역 하나 선택 기본 비용 */
   draftBaseCost: 1,
   /** 드래프트: 내 영토와 인접하지 않은 역 선택 시 추가 비용 */
@@ -168,8 +168,12 @@ export function draftInfo(state: GameState, station: string): DraftInfo | null {
   const transferSurcharge = st.lines.length - 1;
   let disconnected = false;
   if (first) {
-    const otherHq = state.hq[(1 - player) as PlayerId];
-    if (otherHq && graphDistance(otherHq, station) < RULES.minHqDistance) return null;
+    // 본진은 다른 모든 본진과 최소 거리 유지
+    for (let p = 0; p < state.playerCount; p++) {
+      if (p === player) continue;
+      const otherHq = state.hq[p];
+      if (otherHq && graphDistance(otherHq, station) < RULES.minHqDistance) return null;
+    }
   } else {
     disconnected = !neighbors(station).some((n) => state.owners[n] === player);
   }
@@ -186,17 +190,24 @@ export function canDraftPick(state: GameState, station: string): boolean {
 }
 
 // ── 상태 생성/전이 ──────────────────────────────────────────
-export function createGame(mode: VictoryMode, turnLimit = RULES.defaultTurnLimit): GameState {
+export function createGame(
+  mode: VictoryMode,
+  turnLimit = RULES.defaultTurnLimit,
+  playerCount = 2,
+): GameState {
+  const n = Math.max(2, Math.min(4, playerCount));
   return {
     mode,
     turnLimit,
+    playerCount: n,
     round: 1,
     current: 0,
     phase: 'draft',
     owners: {},
-    hq: [null, null],
-    ap: [RULES.startingAp[0], RULES.startingAp[1]],
-    draftDone: [false, false],
+    hq: Array.from({ length: n }, () => null),
+    ap: Array.from({ length: n }, () => RULES.startingAp),
+    draftDone: Array.from({ length: n }, () => false),
+    eliminated: Array.from({ length: n }, () => false),
     winner: null,
     log: [],
   };
@@ -206,14 +217,54 @@ function countStations(state: GameState, player: PlayerId): number {
   return ownedStations(state, player).length;
 }
 
+/** 생존 플레이어 목록 */
+function activePlayers(state: GameState): PlayerId[] {
+  return Array.from({ length: state.playerCount }, (_, i) => i).filter(
+    (p) => !state.eliminated[p],
+  );
+}
+
+/** 다음 차례 (탈락자 건너뜀). 조건이 있으면 그 조건도 만족해야 함. */
+function nextPlayer(
+  state: GameState,
+  from: PlayerId,
+  also?: (p: PlayerId) => boolean,
+): PlayerId {
+  for (let i = 1; i <= state.playerCount; i++) {
+    const cand = (from + i) % state.playerCount;
+    if (state.eliminated[cand]) continue;
+    if (also && !also(cand)) continue;
+    return cand;
+  }
+  return from;
+}
+
+/** 플레이어 탈락 처리: 남은 역을 전부 중립으로 되돌린다 */
+function eliminate(state: GameState, player: PlayerId, reason: string): GameState {
+  const owners = { ...state.owners };
+  for (const id of Object.keys(owners)) {
+    if (owners[id] === player) owners[id] = null;
+  }
+  const eliminated = [...state.eliminated];
+  eliminated[player] = true;
+  return {
+    ...state,
+    owners,
+    eliminated,
+    log: [...state.log, `P${player + 1} 탈락 — ${reason}`],
+  };
+}
+
 function decideTurnLimitWinner(state: GameState): PlayerId | 'draw' {
-  const c0 = countStations(state, 0);
-  const c1 = countStations(state, 1);
-  if (c0 !== c1) return c0 > c1 ? 0 : 1;
-  const p0 = playerIncome(state, 0);
-  const p1 = playerIncome(state, 1);
-  if (p0 !== p1) return p0 > p1 ? 0 : 1;
-  return 'draw';
+  const players = activePlayers(state);
+  const counts = players.map((p) => countStations(state, p));
+  const maxC = Math.max(...counts);
+  let top = players.filter((_, i) => counts[i] === maxC);
+  if (top.length === 1) return top[0];
+  const incomes = top.map((p) => playerIncome(state, p));
+  const maxI = Math.max(...incomes);
+  top = top.filter((_, i) => incomes[i] === maxI);
+  return top.length === 1 ? top[0] : 'draw';
 }
 
 /** 액션 적용. 불가능한 액션이면 원본 상태 그대로 반환. */
@@ -232,13 +283,14 @@ export function applyAction(state: GameState, action: Action): GameState {
       const hq: GameState['hq'] = [...state.hq];
       if (info.first) hq[player] = action.station;
 
-      const other = (1 - player) as PlayerId;
+      // 아직 드래프트를 끝내지 않은 다음 플레이어에게 차례를 넘긴다
+      const next = nextPlayer(state, player, (p) => !state.draftDone[p]);
       return {
         ...state,
         owners,
         ap,
         hq,
-        current: state.draftDone[other] ? player : other,
+        current: next,
         log: [
           ...state.log,
           `P${player + 1} ${info.first ? '본진' : '시작 역'}: ${action.station} (-${info.cost}AP)`,
@@ -253,14 +305,16 @@ export function applyAction(state: GameState, action: Action): GameState {
       if (state.hq[player] === null) return state;
       const draftDone: GameState['draftDone'] = [...state.draftDone];
       draftDone[player] = true;
-      const other = (1 - player) as PlayerId;
-      const bothDone = draftDone[other];
+      const allDone = draftDone.every(Boolean);
+      const next = allDone
+        ? 0
+        : nextPlayer({ ...state, draftDone }, player, (p) => !draftDone[p]);
       return {
         ...state,
         draftDone,
-        phase: bothDone ? 'playing' : 'draft',
-        current: bothDone ? 0 : other,
-        log: [...state.log, `P${player + 1} 시작 역 선택 완료${bothDone ? ' — 게임 시작!' : ''}`],
+        phase: allDone ? 'playing' : 'draft',
+        current: next,
+        log: [...state.log, `P${player + 1} 시작 역 선택 완료${allDone ? ' — 게임 시작!' : ''}`],
       };
     }
 
@@ -273,7 +327,7 @@ export function applyAction(state: GameState, action: Action): GameState {
       const ap: GameState['ap'] = [...state.ap];
       ap[player] -= info.cost;
       const owners = { ...state.owners, [action.station]: player };
-      const next: GameState = {
+      let next: GameState = {
         ...state,
         ap,
         owners,
@@ -283,28 +337,29 @@ export function applyAction(state: GameState, action: Action): GameState {
         ],
       };
 
-      const enemy = (1 - player) as PlayerId;
-
-      // 전멸전: 본진 함락으로 끝나지 않고, 상대 역이 0개가 되면 승리
       if (state.mode === 'annihilation') {
-        if (countStations(next, enemy) === 0) {
-          return {
-            ...next,
-            phase: 'over',
-            winner: player,
-            log: [...next.log, `P${player + 1} 승리 — 상대 전멸!`],
-          };
+        // 전멸전: 역이 0개가 된 플레이어는 탈락. 마지막 생존자가 승리.
+        for (const p of activePlayers(next)) {
+          if (p !== player && next.hq[p] !== null && countStations(next, p) === 0) {
+            next = eliminate(next, p, '전멸');
+          }
         }
-        return next;
+      } else {
+        // 본진 함락전/정복전: 본진을 잃은 플레이어는 탈락 (남은 영토는 중립화)
+        for (const p of activePlayers(next)) {
+          if (p !== player && next.hq[p] === action.station) {
+            next = eliminate(next, p, '본진 함락');
+          }
+        }
       }
 
-      // 본진 함락전/정복전: 상대 본진 점령 시 즉시 승리
-      if (state.hq[enemy] === action.station) {
+      const alive = activePlayers(next);
+      if (alive.length === 1) {
         return {
           ...next,
           phase: 'over',
-          winner: player,
-          log: [...next.log, `P${player + 1} 승리 — 상대 본진 함락!`],
+          winner: alive[0],
+          log: [...next.log, `P${alive[0] + 1} 승리!`],
         };
       }
       return next;
@@ -319,13 +374,14 @@ export function applyAction(state: GameState, action: Action): GameState {
       const ap: GameState['ap'] = [...state.ap];
       ap[player] = Math.min(ap[player] + income, apCap(state, player));
 
-      const nextPlayer = (1 - player) as PlayerId;
-      const nextRound = nextPlayer === 0 ? state.round + 1 : state.round;
+      const np = nextPlayer(state, player);
+      // 인덱스가 감기면(순환 완료) 라운드 증가
+      const nextRound = np <= player ? state.round + 1 : state.round;
 
       const next: GameState = {
         ...state,
         ap,
-        current: nextPlayer,
+        current: np,
         round: nextRound,
         log: [...state.log, `P${player + 1} 턴 종료 (+${income}AP)`],
       };

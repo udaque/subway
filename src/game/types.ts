@@ -28,7 +28,8 @@ export interface Edge {
   river?: boolean;
 }
 
-export type PlayerId = 0 | 1;
+/** 플레이어 인덱스 (0 ~ playerCount-1, 최대 4인) */
+export type PlayerId = number;
 export type Owner = PlayerId | null;
 
 export type VictoryMode = 'hq' | 'turnLimit' | 'annihilation';
@@ -37,17 +38,21 @@ export type Phase = 'draft' | 'playing' | 'over';
 
 export interface GameState {
   mode: VictoryMode;
-  /** turnLimit 모드에서 총 라운드 수 (양쪽이 한 번씩 = 1라운드) */
+  /** turnLimit 모드에서 총 라운드 수 (전원이 한 번씩 = 1라운드) */
   turnLimit: number;
+  /** 참가 인원 (2~4) */
+  playerCount: number;
   round: number;
   current: PlayerId;
   phase: Phase;
   owners: Record<string, Owner>;
   /** 각 플레이어가 처음 고른 역 = 본진 */
-  hq: [string | null, string | null];
-  ap: [number, number];
+  hq: (string | null)[];
+  ap: number[];
   /** 드래프트(시작 역 선택) 종료 여부 */
-  draftDone: [boolean, boolean];
+  draftDone: boolean[];
+  /** 탈락 여부 (본진 함락/전멸) — 탈락자는 턴이 건너뛰어진다 */
+  eliminated: boolean[];
   winner: PlayerId | 'draw' | null;
   log: string[];
 }

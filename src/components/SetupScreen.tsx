@@ -10,6 +10,8 @@ export interface GameConfig {
   turnLimit: number;
   opponent: Opponent;
   difficulty: Difficulty;
+  /** 온라인 방 인원 (2~4, 방장이 결정) */
+  playerCount: number;
   joinCode?: string;
 }
 
@@ -23,6 +25,7 @@ export default function SetupScreen({ onStart }: Props) {
   const [opponentKind, setOpponentKind] = useState<'ai' | 'local' | 'online'>('ai');
   const [onlineRole, setOnlineRole] = useState<'host' | 'join'>('host');
   const [joinCode, setJoinCode] = useState('');
+  const [playerCount, setPlayerCount] = useState(2);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
 
   const opponent: Opponent =
@@ -50,18 +53,18 @@ export default function SetupScreen({ onStart }: Props) {
             <div className="mode-desc">혼자서 AI를 상대로</div>
           </button>
           <button
+            className={`mode-card ${opponentKind === 'online' ? 'selected' : ''}`}
+            onClick={() => setOpponentKind('online')}
+          >
+            <div className="mode-name">🌐 온라인 대전</div>
+            <div className="mode-desc">방 코드를 공유해 최대 4인 실시간 대전 (P2P, 서버 없음)</div>
+          </button>
+          <button
             className={`mode-card ${opponentKind === 'local' ? 'selected' : ''}`}
             onClick={() => setOpponentKind('local')}
           >
             <div className="mode-name">👥 2인 로컬</div>
             <div className="mode-desc">한 기기에서 번갈아</div>
-          </button>
-          <button
-            className={`mode-card ${opponentKind === 'online' ? 'selected' : ''}`}
-            onClick={() => setOpponentKind('online')}
-          >
-            <div className="mode-name">🌐 온라인 대전</div>
-            <div className="mode-desc">방 코드를 공유해 친구와 실시간 대전 (P2P, 서버 없음)</div>
           </button>
         </div>
 
@@ -81,30 +84,46 @@ export default function SetupScreen({ onStart }: Props) {
         )}
 
         {opponentKind === 'online' && (
-          <div className="limit-row">
-            <button
-              className={`chip ${onlineRole === 'host' ? 'selected' : ''}`}
-              onClick={() => setOnlineRole('host')}
-            >
-              방 만들기
-            </button>
-            <button
-              className={`chip ${onlineRole === 'join' ? 'selected' : ''}`}
-              onClick={() => setOnlineRole('join')}
-            >
-              코드로 참가
-            </button>
-            {onlineRole === 'join' && (
-              <input
-                className="code-input"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                placeholder="방 코드"
-                maxLength={8}
-                autoCapitalize="characters"
-              />
+          <>
+            <div className="limit-row">
+              <button
+                className={`chip ${onlineRole === 'host' ? 'selected' : ''}`}
+                onClick={() => setOnlineRole('host')}
+              >
+                방 만들기
+              </button>
+              <button
+                className={`chip ${onlineRole === 'join' ? 'selected' : ''}`}
+                onClick={() => setOnlineRole('join')}
+              >
+                코드로 참가
+              </button>
+              {onlineRole === 'join' && (
+                <input
+                  className="code-input"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="방 코드"
+                  maxLength={8}
+                  autoCapitalize="characters"
+                />
+              )}
+            </div>
+            {onlineRole === 'host' && (
+              <div className="limit-row">
+                <span>인원</span>
+                {[2, 3, 4].map((n) => (
+                  <button
+                    key={n}
+                    className={`chip ${playerCount === n ? 'selected' : ''}`}
+                    onClick={() => setPlayerCount(n)}
+                  >
+                    {n}인
+                  </button>
+                ))}
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {!isGuest && (
@@ -158,7 +177,14 @@ export default function SetupScreen({ onStart }: Props) {
           className="btn-start"
           disabled={!canStart}
           onClick={() =>
-            onStart({ mode, turnLimit, opponent, difficulty, joinCode: joinCode.trim() })
+            onStart({
+              mode,
+              turnLimit,
+              opponent,
+              difficulty,
+              playerCount: opponent === 'online-host' ? playerCount : 2,
+              joinCode: joinCode.trim(),
+            })
           }
         >
           {startLabel}

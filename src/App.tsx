@@ -25,6 +25,11 @@ interface NetState {
   role: 'host' | 'guest';
   code: string;
   status: 'waiting' | 'connected' | 'peer-left';
+  /** 내 플레이어 인덱스 (host = 0, guest는 start 메시지로 배정) */
+  seat: number;
+  /** 총 인원 / 현재 모인 인원 (대기 화면용) */
+  playerCount: number;
+  joined: number;
 }
 
 function genRoomCode(): string {
@@ -53,7 +58,7 @@ export default function App() {
   const focusSeqRef = useRef(0);
 
   const isAi = config?.opponent === 'ai';
-  const myPlayer: PlayerId | null = net ? (net.role === 'host' ? 0 : 1) : null;
+  const myPlayer: PlayerId | null = net ? net.seat : null;
 
   /**
    * 모든 상태 전이의 단일 통로.
@@ -69,7 +74,7 @@ export default function App() {
       // 이 화면의 시점 플레이어 (로컬 2인은 null = 중립 시점)
       const cfg = configRef.current;
       const viewer: PlayerId | null =
-        cfg?.opponent === 'ai' ? 0 : netRef.current ? (netRef.current.role === 'host' ? 0 : 1) : null;
+        cfg?.opponent === 'ai' ? 0 : netRef.current ? netRef.current.seat : null;
 
       if (action.type === 'capture' || action.type === 'draftPick') {
         const st = STATION_BY_ID[action.station];
@@ -135,31 +140,63 @@ export default function App() {
       const code = isHost ? genRoomCode() : (cfg.joinCode ?? '').trim().toUpperCase();
       if (!code) return;
       // P2P 라이브러리는 온라인 모드에서만 동적 로드 (기본 번들 경량화)
-      const { joinRoom } = await import('trystero');
+      const { joinRoom, selfId } = await import('trystero');
       const room = joinRoom({ appId: APP_ID }, code);
       roomRef.current = room;
       const act = room.makeAction<Action>('act');
-      const start = room.makeAction<{ mode: VictoryMode; turnLimit: number }>('start');
+      const start = room.makeAction<{
+        mode: VictoryMode;
+        turnLimit: number;
+        playerCount: number;
+        seats: Record<string, number>;
+      }>('start');
       sendActRef.current = (a) => {
         void act.send(a);
       };
       act.onMessage = (a) => dispatch(a, { auto: true, fromRemote: true });
       setConfig(cfg);
-      setNet({ role: isHost ? 'host' : 'guest', code, status: 'waiting' });
+      setNet({
+        role: isHost ? 'host' : 'guest',
+        code,
+        status: 'waiting',
+        seat: 0,
+        playerCount: isHost ? cfg.playerCount : 0,
+        joined: 1,
+      });
 
       if (isHost) {
-        room.onPeerJoin = () => {
-          if (stateRef.current) return; // 추가 참가자는 무시
-          void start.send({ mode: cfg.mode, turnLimit: cfg.turnLimit });
-          setNet((n) => (n ? { ...n, status: 'connected' } : n));
-          setState(createGame(cfg.mode, cfg.turnLimit));
+        // 참가 순서대로 좌석 배정 (host = 0)
+        const peerSeats: string[] = [];
+        room.onPeerJoin = (peerId: string) => {
+          if (stateRef.current) return; // 시작 후 참가자는 무시
+          if (!peerSeats.includes(peerId)) peerSeats.push(peerId);
+          const joined = 1 + peerSeats.length;
+          setNet((n) => (n ? { ...n, joined } : n));
+          if (joined >= cfg.playerCount) {
+            const seats: Record<string, number> = {};
+            peerSeats.slice(0, cfg.playerCount - 1).forEach((id, i) => {
+              seats[id] = i + 1;
+            });
+            void start.send({
+              mode: cfg.mode,
+              turnLimit: cfg.turnLimit,
+              playerCount: cfg.playerCount,
+              seats,
+            });
+            setNet((n) => (n ? { ...n, status: 'connected' } : n));
+            setState(createGame(cfg.mode, cfg.turnLimit, cfg.playerCount));
+          }
         };
       } else {
-        start.onMessage = ({ mode, turnLimit }) => {
+        start.onMessage = ({ mode, turnLimit, playerCount, seats }) => {
           if (stateRef.current) return;
-          setNet((n) => (n ? { ...n, status: 'connected' } : n));
-          setConfig((c) => (c ? { ...c, mode, turnLimit } : c));
-          setState(createGame(mode, turnLimit));
+          const seat = seats[selfId];
+          if (seat === undefined) return; // 정원 초과 — 좌석 없음
+          setNet((n) =>
+            n ? { ...n, status: 'connected', seat, playerCount, joined: playerCount } : n,
+          );
+          setConfig((c) => (c ? { ...c, mode, turnLimit, playerCount } : c));
+          setState(createGame(mode, turnLimit, playerCount));
         };
       }
       room.onPeerLeave = () => {
@@ -216,7 +253,9 @@ export default function App() {
             </h1>
             {net.role === 'host' ? (
               <>
-                <p className="setup-sub">아래 방 코드를 상대에게 알려주세요</p>
+                <p className="setup-sub">
+                  아래 방 코드를 상대에게 알려주세요 · 참가 {net.joined}/{net.playerCount}명
+                </p>
                 <div className="room-code">{net.code}</div>
               </>
             ) : (
@@ -245,12 +284,10 @@ export default function App() {
     );
   }
 
-  const playerLabels: [string, string] = isAi
+  const playerLabels: string[] = isAi
     ? ['나', `AI·${DIFFICULTY_LABEL[config.difficulty]}`]
     : net
-      ? net.role === 'host'
-        ? ['나', '상대']
-        : ['상대', '나']
+      ? Array.from({ length: state.playerCount }, (_, i) => (i === net.seat ? '나' : `P${i + 1}`))
       : ['P1', 'P2'];
 
   const notice =
@@ -302,14 +339,17 @@ export default function App() {
               {state.winner === 'draw' ? (
                 '무승부'
               ) : (
-                <span style={{ color: PLAYER_COLORS[state.winner as 0 | 1] }}>
-                  {playerLabels[state.winner as 0 | 1]} 승리!
+                <span style={{ color: PLAYER_COLORS[state.winner as number] }}>
+                  {playerLabels[state.winner as number]} 승리!
                 </span>
               )}
             </h1>
             <p className="setup-sub">
-              {playerLabels[0]} {ownedStations(state, 0).length}역 · {playerLabels[1]}{' '}
-              {ownedStations(state, 1).length}역 · {state.round - 1}라운드 진행
+              {playerLabels
+                .slice(0, state.playerCount)
+                .map((l, i) => `${l} ${ownedStations(state, i).length}역`)
+                .join(' · ')}{' '}
+              · {state.round - 1}라운드 진행
             </p>
             <button className="btn-start" onClick={restart}>
               새 게임

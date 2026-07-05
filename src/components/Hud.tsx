@@ -4,7 +4,7 @@ import { PLAYER_COLORS } from './MapCanvas';
 
 interface Props {
   state: GameState;
-  playerLabels: [string, string];
+  playerLabels: string[];
   lockReason: 'ai' | 'remote' | null;
   notice: string | null;
   muted: boolean;
@@ -24,27 +24,34 @@ function PlayerCard({
   label: string;
 }) {
   const active = state.current === player && state.phase !== 'over';
+  const out = state.eliminated[player];
   const owned = ownedStations(state, player).length;
   const income = playerIncome(state, player);
   return (
     <div
-      className={`player-card ${active ? 'active' : ''}`}
+      className={`player-card ${active ? 'active' : ''} ${out ? 'eliminated' : ''}`}
       style={{ borderColor: active ? PLAYER_COLORS[player] : 'transparent' }}
     >
       <span className="player-dot" style={{ background: PLAYER_COLORS[player] }} />
       <span className="player-name">{label}</span>
-      <span className="player-stat">
-        <b>{state.ap[player]}</b>
-        <small>/{apCap(state, player)} AP</small>
-      </span>
-      <span className="player-stat">
-        <b>{owned}</b>
-        <small>역</small>
-      </span>
-      <span className="player-stat">
-        <b>+{income}</b>
-        <small>/턴</small>
-      </span>
+      {out ? (
+        <span className="player-stat">탈락</span>
+      ) : (
+        <>
+          <span className="player-stat">
+            <b>{state.ap[player]}</b>
+            <small>/{apCap(state, player)} AP</small>
+          </span>
+          <span className="player-stat">
+            <b>{owned}</b>
+            <small>역</small>
+          </span>
+          <span className="player-stat">
+            <b>+{income}</b>
+            <small>/턴</small>
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -84,21 +91,29 @@ export default function Hud({
           지하철 <span className="accent">땅따먹기</span>
         </div>
         <div className="hud-players">
-          <PlayerCard state={state} player={0} label={playerLabels[0]} />
-          <div className="hud-round">
-            {state.mode === 'turnLimit' ? (
-              <>
-                <b>{Math.min(state.round, state.turnLimit)}</b>
-                <small>/{state.turnLimit}R</small>
-              </>
+          {playerLabels.slice(0, state.playerCount).map((label, p) =>
+            p === 1 ? (
+              // 라운드 카운터는 첫 두 카드 사이에
+              [
+                <div className="hud-round" key="round">
+                  {state.mode === 'turnLimit' ? (
+                    <>
+                      <b>{Math.min(state.round, state.turnLimit)}</b>
+                      <small>/{state.turnLimit}R</small>
+                    </>
+                  ) : (
+                    <>
+                      <b>{state.round}</b>
+                      <small>R</small>
+                    </>
+                  )}
+                </div>,
+                <PlayerCard state={state} player={p} label={label} key={p} />,
+              ]
             ) : (
-              <>
-                <b>{state.round}</b>
-                <small>R</small>
-              </>
-            )}
-          </div>
-          <PlayerCard state={state} player={1} label={playerLabels[1]} />
+              <PlayerCard state={state} player={p} label={label} key={p} />
+            ),
+          )}
         </div>
         <div
           className="hud-actions"

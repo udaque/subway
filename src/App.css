@@ -69,6 +69,10 @@ body {
   background: #262c37;
 }
 
+.player-card.eliminated {
+  opacity: 0.4;
+}
+
 .player-dot {
   width: 10px;
   height: 10px;
