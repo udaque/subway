@@ -25,6 +25,9 @@ export const RULES = {
   captureBaseCost: 2,
   /** 적 소유 역 점령 시 추가 비용 */
   enemyOwnedSurcharge: 1,
+  /** 포위: 적 역이 내 역 N곳과 인접하면 비용 절반(내림) / 무료 */
+  surroundHalfAt: 2,
+  surroundFreeAt: 3,
   /** 한강 도하 비용 배율 */
   riverCostMultiplier: 1.5,
   /** 시작 AP — 드래프트(시작 역 선택)와 초반 운영에 함께 사용 */
@@ -80,11 +83,14 @@ export interface CaptureInfo {
   viaRiver: boolean;
   fromOwned: boolean;
   enemyOwned: boolean;
+  /** 목표 역과 인접한 내 역 수 (포위 판정) */
+  supporters: number;
 }
 
 /**
  * 현재 플레이어가 해당 역을 점령할 때의 정보.
  * 인접한 아군 역이 없으면 null. 복수 경로가 있으면 최소 비용 경로 기준.
+ * 적 역 포위 시: 내 역 2곳 인접 → 비용 절반(내림), 3곳 이상 → 무료.
  */
 export function captureInfo(state: GameState, target: string): CaptureInfo | null {
   const player = state.current;
@@ -101,14 +107,22 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
     (enemyOwned ? RULES.enemyOwnedSurcharge : 0);
 
   let best: { cost: number; viaRiver: boolean } | null = null;
+  let supporters = 0;
   for (const n of neighbors(target)) {
     if (state.owners[n] !== player) continue;
+    supporters++;
     const viaRiver = edgesBetween(n, target).every((e) => e.river === true);
     const cost = viaRiver ? Math.ceil(base * RULES.riverCostMultiplier) : base;
     if (best === null || cost < best.cost) best = { cost, viaRiver };
   }
   if (best === null) return null;
-  return { ...best, fromOwned: true, enemyOwned };
+
+  let cost = best.cost;
+  if (enemyOwned) {
+    if (supporters >= RULES.surroundFreeAt) cost = 0;
+    else if (supporters >= RULES.surroundHalfAt) cost = Math.floor(cost / 2);
+  }
+  return { cost, viaRiver: best.viaRiver, fromOwned: true, enemyOwned, supporters };
 }
 
 /** 현재 플레이어가 지금 점령을 시도할 수 있는 역 목록 (AP 무관) */

@@ -552,6 +552,9 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
           <div className="legend-row">
             <span className="legend-hq" /> 본진 — 방어 +{RULES.hqDefenseBonus}, 생산 +{RULES.hqProductionBonus}
           </div>
+          <div className="legend-row">
+            <span className="legend-river">⚔</span> 포위: 적 역이 내 역 {RULES.surroundHalfAt}곳과 인접 → ½, {RULES.surroundFreeAt}곳 이상 → 무료
+          </div>
         </div>
       </details>
       {hoveredStation && (
@@ -592,13 +595,16 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
           )}
           {hoveredCap && (
             <div className="tooltip-cost">
-              <div>점령 비용 {hoveredCap.cost}AP</div>
+              <div>점령 비용 {hoveredCap.cost}AP{hoveredCap.cost === 0 && ' — 포위 점령!'}</div>
               <div className="tooltip-breakdown">
                 기본 {RULES.captureBaseCost}
                 {stationDefense(hoveredStation, isHqStation(state, hoveredStation.id)) > 0 &&
                   ` + 방어 ${stationDefense(hoveredStation, isHqStation(state, hoveredStation.id))} (${DEPTH_LABEL[hoveredStation.depth]}${isHqStation(state, hoveredStation.id) ? '·본진' : ''})`}
                 {hoveredCap.enemyOwned && ` + 적 점령지 ${RULES.enemyOwnedSurcharge}`}
                 {hoveredCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 한강 도하`}
+                {hoveredCap.enemyOwned &&
+                  hoveredCap.supporters >= RULES.surroundHalfAt &&
+                  ` → 포위 ${hoveredCap.supporters}방향 ${hoveredCap.supporters >= RULES.surroundFreeAt ? '무료' : '½ (내림)'}`}
               </div>
             </div>
           )}

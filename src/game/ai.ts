@@ -152,7 +152,8 @@ function aiNormal(options: Array<{ id: string; info: CaptureInfo }>): Action {
   let best: { id: string; score: number } | null = null;
   for (const { id, info } of options) {
     const st = STATION_BY_ID[id];
-    let score = stationProduction(st, false) / info.cost;
+    // 포위 무료 점령(cost 0)은 항상 이득
+    let score = stationProduction(st, false) / Math.max(0.5, info.cost);
     if (st.lines.length > 1) score += 0.3;
     if (info.enemyOwned) score += 0.2;
     score += Math.random() * 0.15;
