@@ -193,6 +193,104 @@ body {
   background: #2a303b;
 }
 
+.legend {
+  position: absolute;
+  left: 12px;
+  bottom: 14px;
+  background: rgba(26, 30, 37, 0.93);
+  border: 1px solid #3a414d;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #cfd3da;
+  max-width: 290px;
+  user-select: none;
+}
+
+.legend summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #aab1bd;
+  list-style: none;
+}
+
+.legend summary::before {
+  content: '❔ ';
+}
+
+.legend[open] summary {
+  border-bottom: 1px solid #2c323d;
+}
+
+.legend-body {
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend-formula {
+  font-weight: 700;
+  color: #ffd166;
+  margin-bottom: 2px;
+}
+
+.legend-dim {
+  color: #8b93a1;
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #f0ece2;
+  flex-shrink: 0;
+}
+
+.legend-surface {
+  border: 1.5px dashed #555c68;
+}
+
+.legend-underground {
+  border: 1.5px solid #555c68;
+}
+
+.legend-deep {
+  border: 3px double #555c68;
+}
+
+.legend-river {
+  color: #7fb2e5;
+  font-weight: 700;
+  width: 13px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.legend-hq {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #f0ece2;
+  border: 2.5px solid #ffd166;
+  flex-shrink: 0;
+}
+
+.tooltip-breakdown {
+  color: #98a0ae;
+  font-weight: 400;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
 .tooltip {
   position: absolute;
   width: 180px;

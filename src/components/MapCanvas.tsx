@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EDGES, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
 import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
-import { isHqStation, stationDefense, stationProduction } from '../game/engine';
+import { isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
 
 export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff'] as const;
 export const NEUTRAL_COLOR = '#f0ece2';
@@ -178,17 +178,17 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       const r = (isTransfer ? 7 : 5) * S;
 
       const cap = highlights.capturable.get(s.id);
-      const pickable = highlights.pickable?.has(s.id) ?? false;
+      // 본진 선택 단계: 선택 불가(상대 본진 인접) 역만 흐리게
+      const dimmed = highlights.pickable !== null && !highlights.pickable.has(s.id);
+      ctx.globalAlpha = dimmed ? 0.22 : 1;
 
-      // 점령 가능/선택 가능 글로우
-      if (cap || pickable) {
+      // 점령 가능 글로우
+      if (cap) {
         ctx.beginPath();
         ctx.arc(px, py, r + 4.5 * S, 0, Math.PI * 2);
-        ctx.strokeStyle = pickable
-          ? 'rgba(255, 209, 102, 0.9)'
-          : `${PLAYER_COLORS[state.current]}cc`;
+        ctx.strokeStyle = `${PLAYER_COLORS[state.current]}cc`;
         ctx.lineWidth = 2.5 * S;
-        ctx.setLineDash(cap && cap.cost > state.ap[state.current] ? [3 * S, 3 * S] : []);
+        ctx.setLineDash(cap.cost > state.ap[state.current] ? [3 * S, 3 * S] : []);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -266,6 +266,8 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
           ctx.fillText('🌊', bx + bw + 2, by - 1);
         }
       }
+
+      ctx.globalAlpha = 1;
     }
   }, [state, transform, size, hovered, highlights, toScreen]);
 
@@ -384,11 +386,35 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} style={{ width: size.w, height: size.h }} />
-      <div className="zoom-controls">
+      <div className="zoom-controls" onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}>
         <button onClick={() => zoomBy(1.35)} aria-label="확대">+</button>
         <button onClick={() => zoomBy(1 / 1.35)} aria-label="축소">−</button>
         <button onClick={() => setTransform(fitTransform(size.w, size.h))} aria-label="전체 보기">⊙</button>
       </div>
+      <details className="legend" onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}>
+        <summary>범례 · 점령 비용</summary>
+        <div className="legend-body">
+          <div className="legend-formula">
+            비용 = 기본 {RULES.captureBaseCost} + 방어력
+            <span className="legend-dim"> (+{RULES.enemyOwnedSurcharge} 적 점령지, ×{RULES.riverCostMultiplier} 한강 도하)</span>
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-surface" /> 지상역 — 방어 0 (뚫기 쉬움)
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-underground" /> 지하역 — 방어 1
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-deep" /> 심층역 — 방어 2 (요새)
+          </div>
+          <div className="legend-row">
+            <span className="legend-river">〜</span> 한강 도하 구간 — 비용 ×{RULES.riverCostMultiplier}
+          </div>
+          <div className="legend-row">
+            <span className="legend-hq" /> 본진 — 방어 +{RULES.hqDefenseBonus}, 생산 +{RULES.hqProductionBonus}
+          </div>
+        </div>
+      </details>
       {hoveredStation && (
         <div
           className="tooltip"
@@ -417,9 +443,14 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
           </div>
           {hoveredCap && (
             <div className="tooltip-cost">
-              점령 비용 {hoveredCap.cost}AP
-              {hoveredCap.viaRiver && ' (한강 도하 ×1.5)'}
-              {hoveredCap.enemyOwned && ' — 적 점령지'}
+              <div>점령 비용 {hoveredCap.cost}AP</div>
+              <div className="tooltip-breakdown">
+                기본 {RULES.captureBaseCost}
+                {stationDefense(hoveredStation, isHqStation(state, hoveredStation.id)) > 0 &&
+                  ` + 방어 ${stationDefense(hoveredStation, isHqStation(state, hoveredStation.id))} (${DEPTH_LABEL[hoveredStation.depth]}${isHqStation(state, hoveredStation.id) ? '·본진' : ''})`}
+                {hoveredCap.enemyOwned && ` + 적 점령지 ${RULES.enemyOwnedSurcharge}`}
+                {hoveredCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 한강 도하`}
+              </div>
             </div>
           )}
         </div>

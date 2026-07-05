@@ -1,4 +1,4 @@
-export type LineId = 1 | 2 | 3 | 4;
+export type LineId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /** 방어 특성: 지상(뚫기 쉬움) / 지하(기본) / 심층(요새) */
 export type Depth = 'surface' | 'underground' | 'deep';

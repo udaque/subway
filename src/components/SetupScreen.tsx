@@ -26,7 +26,7 @@ export default function SetupScreen({ onStart }: Props) {
         <h1>
           지하철 <span className="accent">땅따먹기</span>
         </h1>
-        <p className="setup-sub">서울 지하철 1~4호선 · 턴제 영토전</p>
+        <p className="setup-sub">서울 지하철 1~9호선 · 턴제 영토전</p>
 
         <div className="section-label">상대</div>
         <div className="mode-grid">
@@ -104,8 +104,9 @@ export default function SetupScreen({ onStart }: Props) {
         <div className="rules-hint">
           <p>턴마다 점령한 역들이 AP를 생산하고, AP로 인접 역을 점령합니다.</p>
           <ul>
+            <li>💰 점령 비용 = 기본 2 + 방어력 (적 점령지 +1)</li>
             <li>🏙️ 도심·환승역은 생산량이 높고, 변두리 역은 낮습니다</li>
-            <li>🛡️ 지상역(점선)은 뚫기 쉽고, 심층역(두꺼운 테두리)은 요새입니다</li>
+            <li>🛡️ 지상역(점선)은 방어 0, 지하역 1, 심층역(두꺼운 테두리) 2</li>
             <li>🌊 한강을 건너는 공격은 비용이 1.5배입니다</li>
           </ul>
         </div>
