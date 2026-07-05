@@ -12,6 +12,7 @@ import {
   ownedStations,
 } from './game/engine';
 import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
+import { isMuted, setMuted, sfx } from './game/sound';
 import { STATIONS, STATION_BY_ID } from './data/stations';
 import type { Action, GameState, PlayerId, VictoryMode } from './game/types';
 import './App.css';
@@ -37,11 +38,15 @@ export default function App() {
   const [effects, setEffects] = useState<MapEffect[]>([]);
   const [focus, setFocus] = useState<{ x: number; y: number; seq: number } | null>(null);
   const [net, setNet] = useState<NetState | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [muted, setMutedState] = useState(isMuted());
 
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
   const netRef = useRef<NetState | null>(null);
   netRef.current = net;
+  const configRef = useRef<GameConfig | null>(null);
+  configRef.current = config;
   const roomRef = useRef<Room | null>(null);
   const sendActRef = useRef<((a: Action) => void) | null>(null);
   const fxIdRef = useRef(0);
@@ -61,6 +66,11 @@ export default function App() {
       const next = applyAction(s, action);
       if (next === s) return;
 
+      // 이 화면의 시점 플레이어 (로컬 2인은 null = 중립 시점)
+      const cfg = configRef.current;
+      const viewer: PlayerId | null =
+        cfg?.opponent === 'ai' ? 0 : netRef.current ? (netRef.current.role === 'host' ? 0 : 1) : null;
+
       if (action.type === 'capture' || action.type === 'draftPick') {
         const st = STATION_BY_ID[action.station];
         const prevOwner = s.owners[action.station] ?? null;
@@ -79,6 +89,18 @@ export default function App() {
         if (opts.auto) {
           setFocus({ x: st.x, y: st.y, seq: ++focusSeqRef.current });
         }
+        // 효과음
+        if (action.type === 'draftPick') sfx.draft();
+        else if (prevOwner === null) sfx.capture();
+        else if (viewer !== null && prevOwner === viewer) sfx.lost();
+        else sfx.captureEnemy();
+      } else if (action.type === 'endTurn') {
+        sfx.turn();
+      }
+
+      if (next.phase === 'over' && next.winner !== null) {
+        if (next.winner === 'draw' || viewer === null || next.winner === viewer) sfx.win();
+        else sfx.lose();
       }
 
       setState(next);
@@ -156,6 +178,7 @@ export default function App() {
     setConfig(null);
     setEffects([]);
     setFocus(null);
+    setSelected(null);
   }, []);
 
   // 원격 상대 턴 여부
@@ -233,12 +256,13 @@ export default function App() {
   const notice =
     net?.status === 'peer-left' ? '🔌 상대와의 연결이 끊어졌습니다 — 새 게임으로 나가세요' : null;
 
-  const onStationClick = (id: string) => {
+  const onConfirm = (id: string) => {
     if (lockReason) return;
     const s = stateRef.current;
     if (!s) return;
     if (s.phase === 'draft') dispatch({ type: 'draftPick', station: id });
     else if (s.phase === 'playing') dispatch({ type: 'capture', station: id });
+    setSelected(null);
   };
 
   return (
@@ -248,6 +272,11 @@ export default function App() {
         playerLabels={playerLabels}
         lockReason={lockReason}
         notice={notice}
+        muted={muted}
+        onToggleMute={() => {
+          setMuted(!muted);
+          setMutedState(!muted);
+        }}
         onEndTurn={() => {
           if (!lockReason) dispatch({ type: 'endTurn' });
         }}
@@ -261,7 +290,10 @@ export default function App() {
         highlights={highlights}
         effects={effects}
         focus={focus}
-        onStationClick={onStationClick}
+        selected={selected}
+        locked={lockReason !== null}
+        onSelect={setSelected}
+        onConfirm={onConfirm}
       />
       {state.phase === 'over' && (
         <div className="overlay">

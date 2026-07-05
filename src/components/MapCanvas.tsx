@@ -45,7 +45,12 @@ interface Props {
   effects: MapEffect[];
   /** 카메라를 부드럽게 이동시킬 목표 (상대/AI 행동 위치) */
   focus: { x: number; y: number; seq: number } | null;
-  onStationClick: (id: string) => void;
+  /** 터치 선택된 역 (모바일: 1탭 선택 → 정보 패널 → 재탭/버튼으로 실행) */
+  selected: string | null;
+  /** 상대 턴 등으로 행동이 잠겨 있는지 (선택·열람은 가능) */
+  locked: boolean;
+  onSelect: (id: string | null) => void;
+  onConfirm: (id: string) => void;
 }
 
 function fitTransform(w: number, h: number): Transform {
@@ -66,7 +71,16 @@ function fitTransform(w: number, h: number): Transform {
 
 const FX_DURATION = 800;
 
-export default function MapCanvas({ state, highlights, effects, focus, onStationClick }: Props) {
+export default function MapCanvas({
+  state,
+  highlights,
+  effects,
+  focus,
+  selected,
+  locked,
+  onSelect,
+  onConfirm,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fxCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -343,6 +357,17 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
         ctx.stroke();
       }
 
+      // 터치 선택 링
+      if (selected === s.id) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 6 * ui, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.8 * ui;
+        ctx.setLineDash([4 * ui, 3 * ui]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       // 라벨
       const showLabel = showAllLabels || isHq || hovered === s.id || cap !== undefined;
       if (showLabel) {
@@ -388,7 +413,7 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
 
       ctx.globalAlpha = 1;
     }
-  }, [state, transform, size, hovered, highlights, toScreen]);
+  }, [state, transform, size, hovered, highlights, selected, toScreen]);
 
   // ── 인터랙션 ──────────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent) => {
@@ -467,7 +492,13 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
       const rect = wrapRef.current?.getBoundingClientRect();
       if (rect) {
         const id = hitTest(e.clientX - rect.left, e.clientY - rect.top);
-        if (id) onStationClick(id);
+        if (e.pointerType === 'touch') {
+          // 터치: 1탭 = 선택(정보 확인), 같은 역 재탭 = 실행, 배경 탭 = 해제
+          if (id && id === selected) onConfirm(id);
+          else onSelect(id);
+        } else if (id) {
+          onConfirm(id);
+        }
       }
     }
     if (pointers.current.size === 0) {
@@ -512,10 +543,17 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
     });
   };
 
-  // ── 툴팁 ─────────────────────────────────────────────────
+  // ── 툴팁(마우스) / 정보 패널(터치 선택) ────────────────────
   const hoveredStation = hovered ? STATION_BY_ID[hovered] : null;
   const hoveredCap = hovered ? highlights.capturable.get(hovered) : undefined;
   const hoveredDraft = hovered && state.phase === 'draft' ? draftInfo(state, hovered) : null;
+
+  const selStation = selected ? STATION_BY_ID[selected] : null;
+  const selCap = selected && !locked ? highlights.capturable.get(selected) : undefined;
+  const selDraft =
+    selected && !locked && state.phase === 'draft' ? draftInfo(state, selected) : null;
+  const selOwner = selected ? (state.owners[selected] ?? null) : null;
+  const myAp = state.ap[state.current];
 
   return (
     <div
@@ -620,6 +658,89 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
                   hoveredCap.supporters >= RULES.surroundHalfAt &&
                   ` → 포위 ${hoveredCap.supporters}방향 ${hoveredCap.supporters >= RULES.surroundFreeAt ? '무료' : '½ (내림)'}`}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {selStation && (
+        <div
+          className="info-panel"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        >
+          <div className="info-head">
+            <div className="tooltip-title">
+              {selStation.name}
+              {isHqStation(state, selStation.id) && <span className="hq-badge">본진</span>}
+              {selOwner !== null && (
+                <span className="owner-dot" style={{ background: PLAYER_COLORS[selOwner] }} />
+              )}
+            </div>
+            <button className="info-close" onClick={() => onSelect(null)} aria-label="닫기">
+              ✕
+            </button>
+          </div>
+          <div className="tooltip-lines">
+            {selStation.lines.map((l) => (
+              <span key={l} className="line-badge" style={{ background: LINE_COLORS[l] }}>
+                {LINE_BADGE[l]}
+              </span>
+            ))}
+            <span className="tooltip-tags">
+              {TIER_LABEL[selStation.cityTier]} · {DEPTH_LABEL[selStation.depth]}
+            </span>
+          </div>
+          <div className="tooltip-stats">
+            생산 +{stationProduction(selStation, isHqStation(state, selStation.id))}/턴
+            {' · '}방어 {stationDefense(selStation, isHqStation(state, selStation.id))}
+          </div>
+          {selDraft && (
+            <div className="info-action-row">
+              <div className="tooltip-breakdown">
+                기본 {RULES.draftBaseCost}
+                {selDraft.transferSurcharge > 0 && ` + 환승 ${selDraft.transferSurcharge}`}
+                {selDraft.disconnected && ` + 떨어진 지역 ${RULES.draftDisconnectedSurcharge}`}
+              </div>
+              <button
+                className="btn-confirm"
+                disabled={selDraft.cost > myAp}
+                onClick={() => onConfirm(selStation.id)}
+              >
+                {selDraft.first ? '본진으로 선택' : '선택'} · {selDraft.cost}AP
+              </button>
+            </div>
+          )}
+          {selCap && (
+            <div className="info-action-row">
+              <div className="tooltip-breakdown">
+                기본 {RULES.captureBaseCost}
+                {stationDefense(selStation, isHqStation(state, selStation.id)) > 0 &&
+                  ` + 방어 ${stationDefense(selStation, isHqStation(state, selStation.id))}`}
+                {selCap.enemyOwned && ` + 적 ${RULES.enemyOwnedSurcharge}`}
+                {selCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 도하`}
+                {selCap.enemyOwned &&
+                  selCap.supporters >= RULES.surroundHalfAt &&
+                  ` → 포위 ${selCap.supporters >= RULES.surroundFreeAt ? '무료' : '½'}`}
+              </div>
+              <button
+                className="btn-confirm"
+                disabled={selCap.cost > myAp}
+                onClick={() => onConfirm(selStation.id)}
+              >
+                점령 · {selCap.cost}AP
+              </button>
+            </div>
+          )}
+          {!selDraft && !selCap && (
+            <div className="tooltip-breakdown">
+              {locked
+                ? '상대 턴 진행 중'
+                : selOwner === state.current
+                  ? '내 소유 역'
+                  : state.phase === 'playing'
+                    ? '내 역과 인접하지 않아 지금은 점령할 수 없어요'
+                    : ''}
             </div>
           )}
         </div>

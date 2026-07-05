@@ -7,6 +7,8 @@ interface Props {
   playerLabels: [string, string];
   lockReason: 'ai' | 'remote' | null;
   notice: string | null;
+  muted: boolean;
+  onToggleMute: () => void;
   onEndTurn: () => void;
   onDraftDone: () => void;
   onRestart: () => void;
@@ -52,6 +54,8 @@ export default function Hud({
   playerLabels,
   lockReason,
   notice,
+  muted,
+  onToggleMute,
   onEndTurn,
   onDraftDone,
   onRestart,
@@ -124,6 +128,9 @@ export default function Hud({
               턴 종료
             </button>
           )}
+          <button className="btn-ghost btn-mute" onClick={onToggleMute} aria-label="효과음">
+            {muted ? '🔇' : '🔊'}
+          </button>
           <button className="btn-ghost" onClick={onRestart}>
             새 게임
           </button>
