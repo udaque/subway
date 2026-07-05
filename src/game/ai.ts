@@ -3,7 +3,8 @@ import {
   apCap,
   capturableStations,
   draftInfo,
-  playerIncome,
+  effectiveIncome,
+  RULES,
   stationProduction,
   type CaptureInfo,
 } from './engine';
@@ -210,9 +211,20 @@ function aiHard(
 
   if (!best) return { type: 'endTurn' };
 
-  // 가치가 낮은 수에 AP를 흘리지 말고 비축 — 단, 수확이 상한에 잘려 낭비될 상황이면 그냥 쓴다
-  const income = playerIncome(state, AI);
-  if (best.score < 0.2 && ap + income <= apCap(state, AI)) return { type: 'endTurn' };
+  // 가치가 낮은 수에 AP를 흘리지 말고 비축.
+  // 여유 AP가 있으면 본진 요새화에 투자하고, 수확이 상한에 잘릴 상황이면 그냥 쓴다.
+  const income = effectiveIncome(state, AI);
+  if (best.score < 0.2) {
+    const myHq = state.hq[AI];
+    if (
+      myHq &&
+      (state.fortifications[myHq] ?? 0) < RULES.fortifyMaxLevel &&
+      ap >= RULES.fortifyCost + 4
+    ) {
+      return { type: 'fortify', station: myHq };
+    }
+    if (ap + income <= apCap(state, AI)) return { type: 'endTurn' };
+  }
 
   return { type: 'capture', station: best.id };
 }

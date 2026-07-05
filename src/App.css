@@ -379,6 +379,19 @@ body {
   cursor: default;
 }
 
+.info-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.info-buttons .btn-confirm {
+  flex: 1;
+  font-size: 12px;
+  padding: 8px 8px;
+}
+
 .tooltip {
   position: absolute;
   width: 180px;

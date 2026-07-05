@@ -44,6 +44,7 @@ export default function App() {
   const [focus, setFocus] = useState<{ x: number; y: number; seq: number } | null>(null);
   const [net, setNet] = useState<NetState | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [barricadeFrom, setBarricadeFrom] = useState<string | null>(null);
   const [muted, setMutedState] = useState(isMuted());
 
   const stateRef = useRef<GameState | null>(null);
@@ -59,6 +60,13 @@ export default function App() {
 
   const isAi = config?.opponent === 'ai';
   const myPlayer: PlayerId | null = net ? net.seat : null;
+
+  // e2e 테스트/디버깅용 훅 (게임 로직에는 영향 없음)
+  useEffect(() => {
+    (window as unknown as { __game?: GameState | null; __stations?: typeof STATION_BY_ID }).__game =
+      state;
+    (window as unknown as { __stations?: typeof STATION_BY_ID }).__stations = STATION_BY_ID;
+  }, [state]);
 
   /**
    * 모든 상태 전이의 단일 통로.
@@ -99,6 +107,27 @@ export default function App() {
         else if (prevOwner === null) sfx.capture();
         else if (viewer !== null && prevOwner === viewer) sfx.lost();
         else sfx.captureEnemy();
+      } else if (action.type === 'fortify') {
+        const st = STATION_BY_ID[action.station];
+        const now = performance.now();
+        setEffects((list) => [
+          ...list.filter((f) => now - f.start < 900),
+          { id: ++fxIdRef.current, x: st.x, y: st.y, color: '#e8eaed', big: false, start: now },
+        ]);
+        if (opts.auto) setFocus({ x: st.x, y: st.y, seq: ++focusSeqRef.current });
+        sfx.build();
+      } else if (action.type === 'barricade') {
+        const a = STATION_BY_ID[action.a];
+        const b = STATION_BY_ID[action.b];
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        const now = performance.now();
+        setEffects((list) => [
+          ...list.filter((f) => now - f.start < 900),
+          { id: ++fxIdRef.current, x: mx, y: my, color: '#ffd166', big: false, start: now },
+        ]);
+        if (opts.auto) setFocus({ x: mx, y: my, seq: ++focusSeqRef.current });
+        sfx.build();
       } else if (action.type === 'endTurn') {
         sfx.turn();
       }
@@ -216,6 +245,7 @@ export default function App() {
     setEffects([]);
     setFocus(null);
     setSelected(null);
+    setBarricadeFrom(null);
   }, []);
 
   // 원격 상대 턴 여부
@@ -290,16 +320,51 @@ export default function App() {
       ? Array.from({ length: state.playerCount }, (_, i) => (i === net.seat ? '나' : `P${i + 1}`))
       : ['P1', 'P2'];
 
-  const notice =
-    net?.status === 'peer-left' ? '🔌 상대와의 연결이 끊어졌습니다 — 새 게임으로 나가세요' : null;
+  const notice = barricadeFrom
+    ? `🚧 ${barricadeFrom}과 이어진 역을 선택해 바리케이드를 설치하세요 (배경을 누르면 취소)`
+    : net?.status === 'peer-left'
+      ? '🔌 상대와의 연결이 끊어졌습니다 — 새 게임으로 나가세요'
+      : null;
+
+  const tryBarricade = (from: string, to: string) => {
+    dispatch({ type: 'barricade', a: from, b: to });
+    setBarricadeFrom(null);
+    setSelected(null);
+  };
+
+  const onSelect = (id: string | null) => {
+    // 바리케이드 설치 모드: 다음 선택이 반대쪽 역
+    if (barricadeFrom) {
+      if (id && id !== barricadeFrom) tryBarricade(barricadeFrom, id);
+      else setBarricadeFrom(null);
+      return;
+    }
+    setSelected(id);
+  };
 
   const onConfirm = (id: string) => {
+    if (barricadeFrom) {
+      if (id !== barricadeFrom) tryBarricade(barricadeFrom, id);
+      else setBarricadeFrom(null);
+      return;
+    }
     if (lockReason) return;
     const s = stateRef.current;
     if (!s) return;
-    if (s.phase === 'draft') dispatch({ type: 'draftPick', station: id });
-    else if (s.phase === 'playing') dispatch({ type: 'capture', station: id });
-    setSelected(null);
+    if (s.phase === 'draft') {
+      dispatch({ type: 'draftPick', station: id });
+      setSelected(null);
+      return;
+    }
+    if (s.phase === 'playing') {
+      // 내 역 클릭 → 정보/방어시설 패널 열기
+      if (s.owners[id] === s.current) {
+        setSelected(id);
+        return;
+      }
+      dispatch({ type: 'capture', station: id });
+      setSelected(null);
+    }
   };
 
   return (
@@ -328,9 +393,22 @@ export default function App() {
         effects={effects}
         focus={focus}
         selected={selected}
+        barricadeFrom={barricadeFrom}
         locked={lockReason !== null}
-        onSelect={setSelected}
+        onSelect={onSelect}
         onConfirm={onConfirm}
+        onFortify={(id) => {
+          if (!lockReason) {
+            dispatch({ type: 'fortify', station: id });
+            setSelected(null);
+          }
+        }}
+        onBarricadeStart={(id) => {
+          if (!lockReason) {
+            setBarricadeFrom(id);
+            setSelected(null);
+          }
+        }}
       />
       {state.phase === 'over' && (
         <div className="overlay">

@@ -53,6 +53,10 @@ export interface GameState {
   draftDone: boolean[];
   /** 탈락 여부 (본진 함락/전멸) — 탈락자는 턴이 건너뛰어진다 */
   eliminated: boolean[];
+  /** 요새화 레벨 (역 id → 추가 방어, 최대 2). 점령당하면 파괴 */
+  fortifications: Record<string, number>;
+  /** 바리케이드 (정렬된 'a|b' 엣지 키 → 설치자). 뚫리면 소멸 */
+  barricades: Record<string, PlayerId>;
   winner: PlayerId | 'draw' | null;
   log: string[];
 }
@@ -61,4 +65,6 @@ export type Action =
   | { type: 'draftPick'; station: string }
   | { type: 'draftDone' }
   | { type: 'capture'; station: string }
+  | { type: 'fortify'; station: string }
+  | { type: 'barricade'; a: string; b: string }
   | { type: 'endTurn' };

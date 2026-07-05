@@ -1,5 +1,5 @@
 import type { GameState, PlayerId } from '../game/types';
-import { apCap, ownedStations, playerIncome } from '../game/engine';
+import { apCap, effectiveIncome, ownedStations } from '../game/engine';
 import { PLAYER_COLORS } from './MapCanvas';
 
 interface Props {
@@ -26,7 +26,7 @@ function PlayerCard({
   const active = state.current === player && state.phase !== 'over';
   const out = state.eliminated[player];
   const owned = ownedStations(state, player).length;
-  const income = playerIncome(state, player);
+  const income = effectiveIncome(state, player);
   return (
     <div
       className={`player-card ${active ? 'active' : ''} ${out ? 'eliminated' : ''}`}

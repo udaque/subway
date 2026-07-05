@@ -43,7 +43,20 @@ export const RULES = {
   minHqDistance: 8,
   /** 턴 리밋 모드 기본 라운드 수 */
   defaultTurnLimit: 20,
+  /** 수확 체감 지수: 실수령 = ⌈원수입^지수⌉ (후반 AP 인플레 완화) */
+  incomeExponent: 0.8,
+  /** 요새화: 비용 / 역당 최대 레벨 (레벨당 방어 +1) */
+  fortifyCost: 3,
+  fortifyMaxLevel: 2,
+  /** 바리케이드: 설치 비용 / 해당 구간 통과 공격 가산 (뚫리면 소멸) */
+  barricadeCost: 3,
+  barricadeSurcharge: 3,
 };
+
+/** 엣지 키 (방향 무관) */
+export function edgeKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
 
 // ── 파생 스탯 ───────────────────────────────────────────────
 export function stationProduction(st: Station, isHq: boolean): number {
@@ -56,6 +69,13 @@ export function stationProduction(st: Station, isHq: boolean): number {
 
 export function stationDefense(st: Station, isHq: boolean): number {
   return RULES.defenseByDepth[st.depth] + (isHq ? RULES.hqDefenseBonus : 0);
+}
+
+/** 요새화까지 반영한 실제 방어력 */
+export function defenseOf(state: GameState, id: string): number {
+  const st = STATION_BY_ID[id];
+  if (!st) return 0;
+  return stationDefense(st, isHqStation(state, id)) + (state.fortifications[id] ?? 0);
 }
 
 export function isHqStation(state: GameState, id: string): boolean {
@@ -73,6 +93,12 @@ export function playerIncome(state: GameState, player: PlayerId): number {
   );
 }
 
+/** 수확 체감을 적용한 실수령 수입 */
+export function effectiveIncome(state: GameState, player: PlayerId): number {
+  const raw = playerIncome(state, player);
+  return raw <= 0 ? 0 : Math.ceil(raw ** RULES.incomeExponent);
+}
+
 export function apCap(state: GameState, player: PlayerId): number {
   return RULES.apCapBase + RULES.apCapPerStation * ownedStations(state, player).length;
 }
@@ -81,6 +107,10 @@ export function apCap(state: GameState, player: PlayerId): number {
 export interface CaptureInfo {
   cost: number;
   viaRiver: boolean;
+  /** 상대 바리케이드를 뚫고 가는 경로인지 (+가산, 점령 시 소멸) */
+  viaBarricade: boolean;
+  /** 최소 비용 경로의 출발 아군 역 */
+  via: string;
   fromOwned: boolean;
   enemyOwned: boolean;
   /** 목표 역과 인접한 내 역 수 (포위 판정) */
@@ -103,17 +133,20 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
   const enemyOwned = owner !== null;
   const base =
     RULES.captureBaseCost +
-    stationDefense(st, isHqStation(state, target)) +
+    defenseOf(state, target) +
     (enemyOwned ? RULES.enemyOwnedSurcharge : 0);
 
-  let best: { cost: number; viaRiver: boolean } | null = null;
+  let best: { cost: number; viaRiver: boolean; viaBarricade: boolean; via: string } | null = null;
   let supporters = 0;
   for (const n of neighbors(target)) {
     if (state.owners[n] !== player) continue;
     supporters++;
     const viaRiver = edgesBetween(n, target).every((e) => e.river === true);
-    const cost = viaRiver ? Math.ceil(base * RULES.riverCostMultiplier) : base;
-    if (best === null || cost < best.cost) best = { cost, viaRiver };
+    let cost = viaRiver ? Math.ceil(base * RULES.riverCostMultiplier) : base;
+    const barOwner = state.barricades[edgeKey(n, target)];
+    const viaBarricade = barOwner !== undefined && barOwner !== player;
+    if (viaBarricade) cost += RULES.barricadeSurcharge;
+    if (best === null || cost < best.cost) best = { cost, viaRiver, viaBarricade, via: n };
   }
   if (best === null) return null;
 
@@ -122,7 +155,15 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
     if (supporters >= RULES.surroundFreeAt) cost = 0;
     else if (supporters >= RULES.surroundHalfAt) cost = Math.floor(cost / 2);
   }
-  return { cost, viaRiver: best.viaRiver, fromOwned: true, enemyOwned, supporters };
+  return {
+    cost,
+    viaRiver: best.viaRiver,
+    viaBarricade: best.viaBarricade,
+    via: best.via,
+    fromOwned: true,
+    enemyOwned,
+    supporters,
+  };
 }
 
 /** 현재 플레이어가 지금 점령을 시도할 수 있는 역 목록 (AP 무관) */
@@ -208,6 +249,8 @@ export function createGame(
     ap: Array.from({ length: n }, () => RULES.startingAp),
     draftDone: Array.from({ length: n }, () => false),
     eliminated: Array.from({ length: n }, () => false),
+    fortifications: {},
+    barricades: {},
     winner: null,
     log: [],
   };
@@ -239,11 +282,19 @@ function nextPlayer(
   return from;
 }
 
-/** 플레이어 탈락 처리: 남은 역을 전부 중립으로 되돌린다 */
-function eliminate(state: GameState, player: PlayerId, reason: string): GameState {
+/**
+ * 플레이어 탈락 처리.
+ * transferTo가 있으면 남은 영토를 그 플레이어가 흡수하고, 없으면 중립화.
+ */
+function eliminate(
+  state: GameState,
+  player: PlayerId,
+  reason: string,
+  transferTo: PlayerId | null = null,
+): GameState {
   const owners = { ...state.owners };
   for (const id of Object.keys(owners)) {
-    if (owners[id] === player) owners[id] = null;
+    if (owners[id] === player) owners[id] = transferTo;
   }
   const eliminated = [...state.eliminated];
   eliminated[player] = true;
@@ -251,7 +302,10 @@ function eliminate(state: GameState, player: PlayerId, reason: string): GameStat
     ...state,
     owners,
     eliminated,
-    log: [...state.log, `P${player + 1} 탈락 — ${reason}`],
+    log: [
+      ...state.log,
+      `P${player + 1} 탈락 — ${reason}${transferTo !== null ? ` (영토는 P${transferTo + 1}에게 흡수)` : ''}`,
+    ],
   };
 }
 
@@ -327,13 +381,21 @@ export function applyAction(state: GameState, action: Action): GameState {
       const ap: GameState['ap'] = [...state.ap];
       ap[player] -= info.cost;
       const owners = { ...state.owners, [action.station]: player };
+      // 점령된 역의 요새는 파괴, 뚫고 들어온 바리케이드는 소멸
+      const fortifications = { ...state.fortifications };
+      delete fortifications[action.station];
+      const barricades = { ...state.barricades };
+      if (info.viaBarricade) delete barricades[edgeKey(info.via, action.station)];
+
       let next: GameState = {
         ...state,
         ap,
         owners,
+        fortifications,
+        barricades,
         log: [
           ...state.log,
-          `P${player + 1} ${info.enemyOwned ? '탈환' : '점령'}: ${action.station} (-${info.cost}AP${info.viaRiver ? ', 도하' : ''})`,
+          `P${player + 1} ${info.enemyOwned ? '탈환' : '점령'}: ${action.station} (-${info.cost}AP${info.viaRiver ? ', 도하' : ''}${info.viaBarricade ? ', 바리케이드 돌파' : ''})`,
         ],
       };
 
@@ -345,10 +407,10 @@ export function applyAction(state: GameState, action: Action): GameState {
           }
         }
       } else {
-        // 본진 함락전/정복전: 본진을 잃은 플레이어는 탈락 (남은 영토는 중립화)
+        // 본진 함락전/정복전: 본진을 잃은 플레이어는 탈락, 영토는 정복자가 흡수
         for (const p of activePlayers(next)) {
           if (p !== player && next.hq[p] === action.station) {
-            next = eliminate(next, p, '본진 함락');
+            next = eliminate(next, p, '본진 함락', player);
           }
         }
       }
@@ -365,12 +427,54 @@ export function applyAction(state: GameState, action: Action): GameState {
       return next;
     }
 
+    case 'fortify': {
+      if (state.phase !== 'playing') return state;
+      const player = state.current;
+      if (state.owners[action.station] !== player) return state;
+      const level = state.fortifications[action.station] ?? 0;
+      if (level >= RULES.fortifyMaxLevel) return state;
+      if (state.ap[player] < RULES.fortifyCost) return state;
+      const ap: GameState['ap'] = [...state.ap];
+      ap[player] -= RULES.fortifyCost;
+      return {
+        ...state,
+        ap,
+        fortifications: { ...state.fortifications, [action.station]: level + 1 },
+        log: [
+          ...state.log,
+          `P${player + 1} 요새화: ${action.station} +${level + 1} (-${RULES.fortifyCost}AP)`,
+        ],
+      };
+    }
+
+    case 'barricade': {
+      if (state.phase !== 'playing') return state;
+      const player = state.current;
+      if (edgesBetween(action.a, action.b).length === 0) return state;
+      // 내 역과 맞닿은 구간에만 설치 가능
+      if (state.owners[action.a] !== player && state.owners[action.b] !== player) return state;
+      const key = edgeKey(action.a, action.b);
+      if (state.barricades[key] !== undefined) return state;
+      if (state.ap[player] < RULES.barricadeCost) return state;
+      const ap: GameState['ap'] = [...state.ap];
+      ap[player] -= RULES.barricadeCost;
+      return {
+        ...state,
+        ap,
+        barricades: { ...state.barricades, [key]: player },
+        log: [
+          ...state.log,
+          `P${player + 1} 바리케이드: ${action.a}↔${action.b} (-${RULES.barricadeCost}AP)`,
+        ],
+      };
+    }
+
     case 'endTurn': {
       if (state.phase !== 'playing') return state;
       const player = state.current;
 
-      // 턴 종료 시 수확: 내 역들이 생산한 AP를 다음 턴을 위해 비축
-      const income = playerIncome(state, player);
+      // 턴 종료 시 수확: 체감 적용된 실수령 AP를 다음 턴을 위해 비축
+      const income = effectiveIncome(state, player);
       const ap: GameState['ap'] = [...state.ap];
       ap[player] = Math.min(ap[player] + income, apCap(state, player));
 

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EDGES, LINE_BADGE, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
 import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
-import { draftInfo, isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
+import { defenseOf, draftInfo, isHqStation, RULES, stationProduction } from '../game/engine';
+import { neighbors } from '../game/graph';
 
 export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff', '#b06bff', '#2fd6c3'] as const;
 /** 중립 역 채움색 — 생산 등급이 한눈에 보이도록 */
@@ -47,10 +48,14 @@ interface Props {
   focus: { x: number; y: number; seq: number } | null;
   /** 터치 선택된 역 (모바일: 1탭 선택 → 정보 패널 → 재탭/버튼으로 실행) */
   selected: string | null;
+  /** 바리케이드 설치 모드의 기준 역 (인접 역 선택 대기) */
+  barricadeFrom: string | null;
   /** 상대 턴 등으로 행동이 잠겨 있는지 (선택·열람은 가능) */
   locked: boolean;
   onSelect: (id: string | null) => void;
   onConfirm: (id: string) => void;
+  onFortify: (id: string) => void;
+  onBarricadeStart: (id: string) => void;
 }
 
 function fitTransform(w: number, h: number): Transform {
@@ -77,9 +82,12 @@ export default function MapCanvas({
   effects,
   focus,
   selected,
+  barricadeFrom,
   locked,
   onSelect,
   onConfirm,
+  onFortify,
+  onBarricadeStart,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fxCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -249,6 +257,8 @@ export default function MapCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const t = transform;
+    // e2e 테스트용 훅
+    (window as unknown as { __transform?: Transform }).__transform = t;
     const S = t.scale;
     // 노드/라벨/배지 등 UI 요소는 줌인해도 일정 크기 이상 커지지 않게 상한을 둔다.
     // (줌인 = 역 간격이 벌어지는 것이지, 요소가 거대해지는 게 아님)
@@ -300,6 +310,37 @@ export default function MapCanvas({
         ctx.setLineDash([]);
       }
     }
+
+    // 바리케이드 마커 (엣지 중점에 이중 빗장)
+    for (const key of Object.keys(state.barricades)) {
+      const [aId, bId] = key.split('|');
+      const A = STATION_BY_ID[aId];
+      const B = STATION_BY_ID[bId];
+      if (!A || !B) continue;
+      const [ax, ay] = toScreen(A.x, A.y);
+      const [bx, by] = toScreen(B.x, B.y);
+      const mx = (ax + bx) / 2;
+      const my = (ay + by) / 2;
+      const perp = Math.atan2(by - ay, bx - ax) + Math.PI / 2;
+      const len = 6 * ui;
+      const dx = Math.cos(perp) * len;
+      const dy = Math.sin(perp) * len;
+      const along = Math.atan2(by - ay, bx - ax);
+      const off = 2.4 * ui;
+      const ox2 = Math.cos(along) * off;
+      const oy2 = Math.sin(along) * off;
+      ctx.strokeStyle = PLAYER_COLORS[state.barricades[key]];
+      ctx.lineWidth = 2.4 * ui;
+      ctx.beginPath();
+      ctx.moveTo(mx - ox2 - dx, my - oy2 - dy);
+      ctx.lineTo(mx - ox2 + dx, my - oy2 + dy);
+      ctx.moveTo(mx + ox2 - dx, my + oy2 - dy);
+      ctx.lineTo(mx + ox2 + dx, my + oy2 + dy);
+      ctx.stroke();
+    }
+
+    // 바리케이드 설치 모드: 기준 역의 인접 역 하이라이트
+    const barricadeTargets = barricadeFrom ? new Set(neighbors(barricadeFrom)) : null;
 
     // 역 노드
     const showAllLabels = S > 1.05;
@@ -357,6 +398,16 @@ export default function MapCanvas({
         ctx.stroke();
       }
 
+      // 요새화 링 (레벨만큼 두껍게)
+      const fort = state.fortifications[s.id] ?? 0;
+      if (fort > 0) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + (isHq ? 4.4 : 2.4) * ui, 0, Math.PI * 2);
+        ctx.strokeStyle = '#e8eaed';
+        ctx.lineWidth = fort * 1.2 * ui;
+        ctx.stroke();
+      }
+
       // 터치 선택 링
       if (selected === s.id) {
         ctx.beginPath();
@@ -364,6 +415,17 @@ export default function MapCanvas({
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1.8 * ui;
         ctx.setLineDash([4 * ui, 3 * ui]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // 바리케이드 설치 후보 (기준 역의 인접 역)
+      if (barricadeTargets?.has(s.id)) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 5 * ui, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 2 * ui;
+        ctx.setLineDash([3 * ui, 2.5 * ui]);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -413,7 +475,7 @@ export default function MapCanvas({
 
       ctx.globalAlpha = 1;
     }
-  }, [state, transform, size, hovered, highlights, selected, toScreen]);
+  }, [state, transform, size, hovered, highlights, selected, barricadeFrom, toScreen]);
 
   // ── 인터랙션 ──────────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent) => {
@@ -498,6 +560,8 @@ export default function MapCanvas({
           else onSelect(id);
         } else if (id) {
           onConfirm(id);
+        } else {
+          onSelect(null); // 배경 클릭 → 패널/설치 모드 해제
         }
       }
     }
@@ -607,6 +671,15 @@ export default function MapCanvas({
           <div className="legend-row">
             <span className="legend-river">⚔</span> 포위: 적 역이 내 역 {RULES.surroundHalfAt}곳과 인접 → ½, {RULES.surroundFreeAt}곳 이상 → 무료
           </div>
+          <div className="legend-row">
+            <span className="legend-river">🛡</span> 요새화(내 역): 방어 +1, 최대 +{RULES.fortifyMaxLevel} · {RULES.fortifyCost}AP — 뺏기면 파괴
+          </div>
+          <div className="legend-row">
+            <span className="legend-river">🚧</span> 바리케이드(내 역 인접 구간): 그 구간 공격 +{RULES.barricadeSurcharge}AP · 뚫리면 소멸
+          </div>
+          <div className="legend-row">
+            <span className="legend-river">📉</span> 수확 체감: 실수령 = ⌈수입^{RULES.incomeExponent}⌉
+          </div>
         </div>
       </details>
       {hoveredStation && (
@@ -633,7 +706,7 @@ export default function MapCanvas({
           </div>
           <div className="tooltip-stats">
             생산 +{stationProduction(hoveredStation, isHqStation(state, hoveredStation.id))}/턴
-            {' · '}방어 {stationDefense(hoveredStation, isHqStation(state, hoveredStation.id))}
+            {' · '}방어 {defenseOf(state, hoveredStation.id)}
           </div>
           {hoveredDraft && (
             <div className="tooltip-cost">
@@ -650,8 +723,8 @@ export default function MapCanvas({
               <div>점령 비용 {hoveredCap.cost}AP{hoveredCap.cost === 0 && ' — 포위 점령!'}</div>
               <div className="tooltip-breakdown">
                 기본 {RULES.captureBaseCost}
-                {stationDefense(hoveredStation, isHqStation(state, hoveredStation.id)) > 0 &&
-                  ` + 방어 ${stationDefense(hoveredStation, isHqStation(state, hoveredStation.id))} (${DEPTH_LABEL[hoveredStation.depth]}${isHqStation(state, hoveredStation.id) ? '·본진' : ''})`}
+                {defenseOf(state, hoveredStation.id) > 0 &&
+                  ` + 방어 ${defenseOf(state, hoveredStation.id)} (${DEPTH_LABEL[hoveredStation.depth]}${isHqStation(state, hoveredStation.id) ? '·본진' : ''})`}
                 {hoveredCap.enemyOwned && ` + 적 점령지 ${RULES.enemyOwnedSurcharge}`}
                 {hoveredCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 한강 도하`}
                 {hoveredCap.enemyOwned &&
@@ -693,7 +766,9 @@ export default function MapCanvas({
           </div>
           <div className="tooltip-stats">
             생산 +{stationProduction(selStation, isHqStation(state, selStation.id))}/턴
-            {' · '}방어 {stationDefense(selStation, isHqStation(state, selStation.id))}
+            {' · '}방어 {defenseOf(state, selStation.id)}
+            {(state.fortifications[selStation.id] ?? 0) > 0 &&
+              ` (요새 +${state.fortifications[selStation.id]})`}
           </div>
           {selDraft && (
             <div className="info-action-row">
@@ -715,8 +790,8 @@ export default function MapCanvas({
             <div className="info-action-row">
               <div className="tooltip-breakdown">
                 기본 {RULES.captureBaseCost}
-                {stationDefense(selStation, isHqStation(state, selStation.id)) > 0 &&
-                  ` + 방어 ${stationDefense(selStation, isHqStation(state, selStation.id))}`}
+                {defenseOf(state, selStation.id) > 0 &&
+                  ` + 방어 ${defenseOf(state, selStation.id)}`}
                 {selCap.enemyOwned && ` + 적 ${RULES.enemyOwnedSurcharge}`}
                 {selCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 도하`}
                 {selCap.enemyOwned &&
@@ -732,15 +807,36 @@ export default function MapCanvas({
               </button>
             </div>
           )}
-          {!selDraft && !selCap && (
+          {!locked && state.phase === 'playing' && selOwner === state.current && (
+            <div className="info-action-row">
+              <div className="info-buttons">
+                <button
+                  className="btn-confirm"
+                  disabled={
+                    (state.fortifications[selStation.id] ?? 0) >= RULES.fortifyMaxLevel ||
+                    myAp < RULES.fortifyCost
+                  }
+                  onClick={() => onFortify(selStation.id)}
+                >
+                  🛡 요새화 · {RULES.fortifyCost}AP
+                </button>
+                <button
+                  className="btn-confirm"
+                  disabled={myAp < RULES.barricadeCost}
+                  onClick={() => onBarricadeStart(selStation.id)}
+                >
+                  🚧 바리케이드 · {RULES.barricadeCost}AP
+                </button>
+              </div>
+            </div>
+          )}
+          {!selDraft && !selCap && selOwner !== state.current && (
             <div className="tooltip-breakdown">
               {locked
                 ? '상대 턴 진행 중'
-                : selOwner === state.current
-                  ? '내 소유 역'
-                  : state.phase === 'playing'
-                    ? '내 역과 인접하지 않아 지금은 점령할 수 없어요'
-                    : ''}
+                : state.phase === 'playing'
+                  ? '내 역과 인접하지 않아 지금은 점령할 수 없어요'
+                  : ''}
             </div>
           )}
         </div>

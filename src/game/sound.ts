@@ -94,6 +94,11 @@ export const sfx = {
   turn(): void {
     tone(840, 0.06, { gain: 0.05 });
   },
+  /** 요새화/바리케이드 설치 */
+  build(): void {
+    tone(220, 0.08, { type: 'square', gain: 0.06 });
+    tone(330, 0.1, { when: 0.06, type: 'triangle', gain: 0.09 });
+  },
   /** 승리 */
   win(): void {
     [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.17, { when: i * 0.12, gain: 0.13 }));
