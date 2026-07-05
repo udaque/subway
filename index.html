@@ -7,8 +7,21 @@
     <meta name="theme-color" content="#12151a" />
     <title>지하철 땅따먹기 — 서울 1~4호선 영토전</title>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="background:#12151a">
+    <div id="root">
+      <div id="boot-msg" style="display:flex;align-items:center;justify-content:center;height:100vh;color:#8b93a1;font-family:sans-serif;font-size:14px">
+        지하철 땅따먹기 로딩 중…
+      </div>
+    </div>
+    <script>
+      // 앱이 못 뜨는 원인을 하얀 화면 대신 화면에 표시 (구형 브라우저 호환 문법만 사용)
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('boot-msg');
+        if (!el) return;
+        el.style.cssText = 'padding:24px;color:#ff8888;font-family:monospace;font-size:13px;white-space:pre-wrap;word-break:break-all';
+        el.textContent = '앱 로딩 실패:\n' + (e.message || e.type) + (e.filename ? '\n' + e.filename + ':' + e.lineno : '');
+      }, true);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
