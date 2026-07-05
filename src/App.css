@@ -1,0 +1,422 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: #12151a;
+  color: #e8eaed;
+  font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.accent {
+  color: #ffd166;
+}
+
+/* ── HUD ─────────────────────────────────── */
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #1a1e25;
+  border-bottom: 1px solid #2a2f38;
+  flex-wrap: wrap;
+}
+
+.hud-title {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+}
+
+.hud-players {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+  min-width: 280px;
+}
+
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: #21262f;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.player-card.active {
+  background: #262c37;
+}
+
+.player-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.player-name {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.player-stat {
+  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.player-stat small {
+  color: #8b93a1;
+  font-size: 10px;
+}
+
+.hud-round {
+  font-size: 14px;
+  color: #cfd3da;
+  padding: 0 4px;
+}
+
+.hud-round small {
+  color: #8b93a1;
+}
+
+.hud-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-end-turn {
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.btn-end-turn:hover {
+  filter: brightness(1.15);
+}
+
+.btn-end-turn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid #3a414d;
+  color: #aab1bd;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  border-color: #58627212;
+  background: #242a33;
+}
+
+.banner {
+  padding: 7px 14px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  background: #1d222b;
+  border-bottom: 2px solid;
+}
+
+/* ── 지도 ────────────────────────────────── */
+.map-wrap {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.map-wrap:active {
+  cursor: grabbing;
+}
+
+.map-wrap canvas {
+  display: block;
+}
+
+.zoom-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zoom-controls button {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid #3a414d;
+  background: rgba(26, 30, 37, 0.9);
+  color: #e8eaed;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.zoom-controls button:hover {
+  background: #2a303b;
+}
+
+.tooltip {
+  position: absolute;
+  width: 180px;
+  background: rgba(22, 26, 33, 0.96);
+  border: 1px solid #39404c;
+  border-radius: 10px;
+  padding: 9px 11px;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 12px;
+}
+
+.tooltip-title {
+  font-weight: 700;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hq-badge {
+  font-size: 10px;
+  background: #ffd166;
+  color: #201a05;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+.tooltip-lines {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+
+.line-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tooltip-tags {
+  color: #98a0ae;
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+.tooltip-stats {
+  color: #cfd3da;
+}
+
+.tooltip-cost {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid #333a46;
+  color: #ffd166;
+  font-weight: 600;
+}
+
+/* ── 오버레이/시작 화면 ───────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.setup-card {
+  width: 100%;
+  max-width: 520px;
+  background: #1a1e25;
+  border: 1px solid #2c323d;
+  border-radius: 18px;
+  padding: 28px;
+  text-align: center;
+}
+
+.setup-card h1 {
+  font-size: 26px;
+  letter-spacing: -0.5px;
+}
+
+.setup-sub {
+  color: #8b93a1;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.section-label {
+  margin-top: 22px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: #7f8794;
+  letter-spacing: 0.05em;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 0;
+}
+
+.mode-card {
+  background: #21262f;
+  border: 2px solid #2c323d;
+  border-radius: 13px;
+  padding: 14px 12px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.mode-card.selected {
+  border-color: #ffd166;
+  background: #262b35;
+}
+
+.mode-name {
+  font-weight: 700;
+  font-size: 14.5px;
+  margin-bottom: 5px;
+}
+
+.mode-desc {
+  font-size: 12px;
+  color: #98a0ae;
+  line-height: 1.45;
+}
+
+.limit-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: #98a0ae;
+}
+
+.chip {
+  background: #21262f;
+  border: 1.5px solid #2c323d;
+  color: #cfd3da;
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip.selected {
+  border-color: #ffd166;
+  color: #ffd166;
+  font-weight: 700;
+}
+
+.btn-start {
+  margin-top: 22px;
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: #ffd166;
+  color: #201a05;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.btn-start:hover {
+  filter: brightness(1.08);
+}
+
+.rules-hint {
+  margin-top: 22px;
+  text-align: left;
+  font-size: 12.5px;
+  color: #98a0ae;
+  line-height: 1.65;
+  background: #171b21;
+  border-radius: 11px;
+  padding: 13px 15px;
+}
+
+.rules-hint ul {
+  margin-top: 6px;
+  padding-left: 4px;
+  list-style: none;
+}
+
+.result-card h1 {
+  font-size: 30px;
+}
+
+@media (max-width: 560px) {
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hud {
+    gap: 8px;
+    padding: 7px 10px;
+  }
+
+  .hud-title {
+    display: none;
+  }
+
+  .hud-players {
+    min-width: 0;
+  }
+}
