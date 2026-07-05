@@ -5,7 +5,8 @@ import { PLAYER_COLORS } from './MapCanvas';
 interface Props {
   state: GameState;
   playerLabels: [string, string];
-  aiThinking: boolean;
+  lockReason: 'ai' | 'remote' | null;
+  notice: string | null;
   onEndTurn: () => void;
   onDraftDone: () => void;
   onRestart: () => void;
@@ -49,14 +50,17 @@ function PlayerCard({
 export default function Hud({
   state,
   playerLabels,
-  aiThinking,
+  lockReason,
+  notice,
   onEndTurn,
   onDraftDone,
   onRestart,
 }: Props) {
   const banner = (() => {
+    if (notice) return notice;
     if (state.phase === 'draft') {
-      if (aiThinking) return '🤖 AI가 시작 역을 고르는 중…';
+      if (lockReason === 'ai') return '🤖 AI가 시작 역을 고르는 중…';
+      if (lockReason === 'remote') return '🌐 상대가 시작 역을 고르는 중…';
       return `${playerLabels[state.current]}: AP로 시작 역들을 고르세요 — 첫 역이 본진, 남은 AP는 게임에서 사용`;
     }
     if (state.phase === 'over') {
@@ -64,9 +68,8 @@ export default function Hud({
         ? '무승부!'
         : `${playerLabels[state.winner as number]} 승리!`;
     }
-    if (aiThinking) {
-      return '🤖 AI 턴 진행 중…';
-    }
+    if (lockReason === 'ai') return '🤖 AI 턴 진행 중…';
+    if (lockReason === 'remote') return '🌐 상대 턴 진행 중…';
     return null;
   })();
 
@@ -105,7 +108,7 @@ export default function Hud({
             <button
               className="btn-end-turn"
               style={{ background: PLAYER_COLORS[state.current] }}
-              disabled={aiThinking}
+              disabled={lockReason !== null}
               onClick={onDraftDone}
             >
               선택 완료
@@ -115,7 +118,7 @@ export default function Hud({
             <button
               className="btn-end-turn"
               style={{ background: PLAYER_COLORS[state.current] }}
-              disabled={aiThinking}
+              disabled={lockReason !== null}
               onClick={onEndTurn}
             >
               턴 종료

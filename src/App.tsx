@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Room } from 'trystero';
 import MapCanvas, { PLAYER_COLORS } from './components/MapCanvas';
-import type { MapHighlights } from './components/MapCanvas';
+import type { MapEffect, MapHighlights } from './components/MapCanvas';
 import Hud from './components/Hud';
 import SetupScreen, { type GameConfig } from './components/SetupScreen';
 import {
@@ -11,38 +12,163 @@ import {
   ownedStations,
 } from './game/engine';
 import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
-import { STATIONS } from './data/stations';
-import type { GameState } from './game/types';
+import { STATIONS, STATION_BY_ID } from './data/stations';
+import type { Action, GameState, PlayerId, VictoryMode } from './game/types';
 import './App.css';
 
-const AI_MOVE_DELAY = 500;
+const AI_MOVE_DELAY = 650;
 const AI_PICK_DELAY = 800;
+const APP_ID = 'udaque-subway-territory';
+
+interface NetState {
+  role: 'host' | 'guest';
+  code: string;
+  status: 'waiting' | 'connected' | 'peer-left';
+}
+
+function genRoomCode(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
 
 export default function App() {
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [state, setState] = useState<GameState | null>(null);
+  const [effects, setEffects] = useState<MapEffect[]>([]);
+  const [focus, setFocus] = useState<{ x: number; y: number; seq: number } | null>(null);
+  const [net, setNet] = useState<NetState | null>(null);
 
-  const isAiTurn =
-    config?.vsAi === true && state !== null && state.phase !== 'over' && state.current === 1;
+  const stateRef = useRef<GameState | null>(null);
+  stateRef.current = state;
+  const netRef = useRef<NetState | null>(null);
+  netRef.current = net;
+  const roomRef = useRef<Room | null>(null);
+  const sendActRef = useRef<((a: Action) => void) | null>(null);
+  const fxIdRef = useRef(0);
+  const focusSeqRef = useRef(0);
 
-  // AI 턴 자동 진행 (행동 사이 딜레이를 둬서 진행이 보이게)
+  const isAi = config?.opponent === 'ai';
+  const myPlayer: PlayerId | null = net ? (net.role === 'host' ? 0 : 1) : null;
+
+  /**
+   * 모든 상태 전이의 단일 통로.
+   * auto = 화면 밖 주체(AI/원격 상대)의 행동 → 카메라가 그 위치로 이동.
+   */
+  const dispatch = useCallback(
+    (action: Action, opts: { auto?: boolean; fromRemote?: boolean } = {}) => {
+      const s = stateRef.current;
+      if (!s) return;
+      const next = applyAction(s, action);
+      if (next === s) return;
+
+      if (action.type === 'capture' || action.type === 'draftPick') {
+        const st = STATION_BY_ID[action.station];
+        const prevOwner = s.owners[action.station] ?? null;
+        const now = performance.now();
+        setEffects((list) => [
+          ...list.filter((f) => now - f.start < 900),
+          {
+            id: ++fxIdRef.current,
+            x: st.x,
+            y: st.y,
+            color: PLAYER_COLORS[s.current],
+            big: prevOwner !== null, // 플레이어 소유지가 넘어감 → 강한 효과
+            start: now,
+          },
+        ]);
+        if (opts.auto) {
+          setFocus({ x: st.x, y: st.y, seq: ++focusSeqRef.current });
+        }
+      }
+
+      setState(next);
+      if (!opts.fromRemote && netRef.current?.status === 'connected') {
+        sendActRef.current?.(action);
+      }
+    },
+    [],
+  );
+
+  // ── AI 턴 자동 진행 ────────────────────────────────────────
+  const isAiTurn = isAi && state !== null && state.phase !== 'over' && state.current === 1;
   useEffect(() => {
     if (!isAiTurn || !state || !config) return;
     const delay = state.phase === 'draft' ? AI_PICK_DELAY : AI_MOVE_DELAY;
     const timer = setTimeout(() => {
-      setState((s) => {
-        if (!s || s.phase === 'over' || s.current !== 1) return s;
-        if (s.phase === 'draft') {
-          return applyAction(s, aiDraftAction(s, config.difficulty));
-        }
-        return applyAction(s, aiNextAction(s, config.difficulty));
-      });
+      const s = stateRef.current;
+      if (!s || s.phase === 'over' || s.current !== 1) return;
+      const action =
+        s.phase === 'draft'
+          ? aiDraftAction(s, config.difficulty)
+          : aiNextAction(s, config.difficulty);
+      dispatch(action, { auto: true });
     }, delay);
     return () => clearTimeout(timer);
-  }, [isAiTurn, state, config]);
+  }, [isAiTurn, state, config, dispatch]);
+
+  // ── 온라인 방 생성/참가 ────────────────────────────────────
+  const beginOnline = useCallback(
+    async (cfg: GameConfig) => {
+      const isHost = cfg.opponent === 'online-host';
+      const code = isHost ? genRoomCode() : (cfg.joinCode ?? '').trim().toUpperCase();
+      if (!code) return;
+      // P2P 라이브러리는 온라인 모드에서만 동적 로드 (기본 번들 경량화)
+      const { joinRoom } = await import('trystero');
+      const room = joinRoom({ appId: APP_ID }, code);
+      roomRef.current = room;
+      const act = room.makeAction<Action>('act');
+      const start = room.makeAction<{ mode: VictoryMode; turnLimit: number }>('start');
+      sendActRef.current = (a) => {
+        void act.send(a);
+      };
+      act.onMessage = (a) => dispatch(a, { auto: true, fromRemote: true });
+      setConfig(cfg);
+      setNet({ role: isHost ? 'host' : 'guest', code, status: 'waiting' });
+
+      if (isHost) {
+        room.onPeerJoin = () => {
+          if (stateRef.current) return; // 추가 참가자는 무시
+          void start.send({ mode: cfg.mode, turnLimit: cfg.turnLimit });
+          setNet((n) => (n ? { ...n, status: 'connected' } : n));
+          setState(createGame(cfg.mode, cfg.turnLimit));
+        };
+      } else {
+        start.onMessage = ({ mode, turnLimit }) => {
+          if (stateRef.current) return;
+          setNet((n) => (n ? { ...n, status: 'connected' } : n));
+          setConfig((c) => (c ? { ...c, mode, turnLimit } : c));
+          setState(createGame(mode, turnLimit));
+        };
+      }
+      room.onPeerLeave = () => {
+        setNet((n) => (n ? { ...n, status: 'peer-left' } : n));
+      };
+    },
+    [dispatch],
+  );
+
+  const restart = useCallback(() => {
+    void roomRef.current?.leave();
+    roomRef.current = null;
+    sendActRef.current = null;
+    setNet(null);
+    setState(null);
+    setConfig(null);
+    setEffects([]);
+    setFocus(null);
+  }, []);
+
+  // 원격 상대 턴 여부
+  const isRemoteTurn =
+    net !== null &&
+    state !== null &&
+    state.phase !== 'over' &&
+    (net.status !== 'connected' || state.current !== myPlayer);
+
+  const lockReason: 'ai' | 'remote' | null = isAiTurn ? 'ai' : isRemoteTurn ? 'remote' : null;
 
   const highlights: MapHighlights = useMemo(() => {
-    if (!state || isAiTurn) return { capturable: new Map(), pickable: null };
+    if (!state || lockReason) return { capturable: new Map(), pickable: null };
     if (state.phase === 'draft') {
       return {
         capturable: new Map(),
@@ -53,37 +179,66 @@ export default function App() {
       return { capturable: capturableStations(state), pickable: null };
     }
     return { capturable: new Map(), pickable: null };
-  }, [state, isAiTurn]);
+  }, [state, lockReason]);
 
   if (!state || !config) {
+    // 온라인 대기 중 (상대를 기다리는 화면)
+    if (net && config) {
+      return (
+        <div className="overlay">
+          <div className="setup-card">
+            <h1>
+              {net.role === 'host' ? '상대 대기 중' : '방 연결 중'}
+              <span className="accent">…</span>
+            </h1>
+            {net.role === 'host' ? (
+              <>
+                <p className="setup-sub">아래 방 코드를 상대에게 알려주세요</p>
+                <div className="room-code">{net.code}</div>
+              </>
+            ) : (
+              <p className="setup-sub">
+                방 <b>{net.code}</b>에 연결하고 있어요. 방장이 자리를 지키고 있어야 합니다.
+              </p>
+            )}
+            <button className="btn-ghost btn-cancel" onClick={restart}>
+              취소
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <SetupScreen
         onStart={(cfg: GameConfig) => {
-          setConfig(cfg);
-          setState(createGame(cfg.mode, cfg.turnLimit));
+          if (cfg.opponent === 'online-host' || cfg.opponent === 'online-guest') {
+            void beginOnline(cfg);
+          } else {
+            setConfig(cfg);
+            setState(createGame(cfg.mode, cfg.turnLimit));
+          }
         }}
       />
     );
   }
 
-  const playerLabels: [string, string] = [
-    config.vsAi ? '나' : 'P1',
-    config.vsAi ? `AI·${DIFFICULTY_LABEL[config.difficulty]}` : 'P2',
-  ];
+  const playerLabels: [string, string] = isAi
+    ? ['나', `AI·${DIFFICULTY_LABEL[config.difficulty]}`]
+    : net
+      ? net.role === 'host'
+        ? ['나', '상대']
+        : ['상대', '나']
+      : ['P1', 'P2'];
+
+  const notice =
+    net?.status === 'peer-left' ? '🔌 상대와의 연결이 끊어졌습니다 — 새 게임으로 나가세요' : null;
 
   const onStationClick = (id: string) => {
-    if (isAiTurn) return;
-    setState((s) => {
-      if (!s) return s;
-      if (s.phase === 'draft') return applyAction(s, { type: 'draftPick', station: id });
-      if (s.phase === 'playing') return applyAction(s, { type: 'capture', station: id });
-      return s;
-    });
-  };
-
-  const restart = () => {
-    setState(null);
-    setConfig(null);
+    if (lockReason) return;
+    const s = stateRef.current;
+    if (!s) return;
+    if (s.phase === 'draft') dispatch({ type: 'draftPick', station: id });
+    else if (s.phase === 'playing') dispatch({ type: 'capture', station: id });
   };
 
   return (
@@ -91,18 +246,23 @@ export default function App() {
       <Hud
         state={state}
         playerLabels={playerLabels}
-        aiThinking={isAiTurn}
+        lockReason={lockReason}
+        notice={notice}
         onEndTurn={() => {
-          if (isAiTurn) return;
-          setState((s) => (s ? applyAction(s, { type: 'endTurn' }) : s));
+          if (!lockReason) dispatch({ type: 'endTurn' });
         }}
         onDraftDone={() => {
-          if (isAiTurn) return;
-          setState((s) => (s ? applyAction(s, { type: 'draftDone' }) : s));
+          if (!lockReason) dispatch({ type: 'draftDone' });
         }}
         onRestart={restart}
       />
-      <MapCanvas state={state} highlights={highlights} onStationClick={onStationClick} />
+      <MapCanvas
+        state={state}
+        highlights={highlights}
+        effects={effects}
+        focus={focus}
+        onStationClick={onStationClick}
+      />
       {state.phase === 'over' && (
         <div className="overlay">
           <div className="setup-card result-card">

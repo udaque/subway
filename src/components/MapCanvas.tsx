@@ -23,9 +23,23 @@ export interface MapHighlights {
   pickable: Set<string> | null;
 }
 
+/** 점령/선택 순간의 시각 효과 (확장 링) */
+export interface MapEffect {
+  id: number;
+  x: number;
+  y: number;
+  color: string;
+  /** 플레이어 소유지가 넘어간 경우 더 강한 효과 */
+  big: boolean;
+  start: number;
+}
+
 interface Props {
   state: GameState;
   highlights: MapHighlights;
+  effects: MapEffect[];
+  /** 카메라를 부드럽게 이동시킬 목표 (상대/AI 행동 위치) */
+  focus: { x: number; y: number; seq: number } | null;
   onStationClick: (id: string) => void;
 }
 
@@ -45,13 +59,20 @@ function fitTransform(w: number, h: number): Transform {
   };
 }
 
-export default function MapCanvas({ state, highlights, onStationClick }: Props) {
+const FX_DURATION = 800;
+
+export default function MapCanvas({ state, highlights, effects, focus, onStationClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fxCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState<Transform | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [mouse, setMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  const transformRef = useRef<Transform | null>(null);
+  transformRef.current = transform;
+  const camCancelRef = useRef(false);
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{
@@ -80,6 +101,96 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       setTransform(fitTransform(size.w, size.h));
     }
   }, [size, transform]);
+
+  // ── 카메라 팬 애니메이션 (상대/AI 행동 위치로 부드럽게 이동) ──
+  useEffect(() => {
+    if (!focus || size.w === 0) return;
+    const from = transformRef.current;
+    if (!from) return;
+    const toScale = Math.max(from.scale, 1.5);
+    const to = {
+      scale: toScale,
+      ox: size.w / 2 - focus.x * toScale,
+      oy: size.h * 0.45 - focus.y * toScale,
+    };
+    camCancelRef.current = false;
+    const start = performance.now();
+    const dur = 450;
+    let raf = 0;
+    const step = (now: number) => {
+      if (camCancelRef.current) return;
+      const p = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - p, 3);
+      setTransform({
+        scale: from.scale + (to.scale - from.scale) * e,
+        ox: from.ox + (to.ox - from.ox) * e,
+        oy: from.oy + (to.oy - from.oy) * e,
+      });
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.seq]);
+
+  // ── 점령/선택 효과 오버레이 (확장 링) ─────────────────────
+  useEffect(() => {
+    const canvas = fxCanvasRef.current;
+    if (!canvas || size.w === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size.w * dpr;
+    canvas.height = size.h * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (effects.length === 0) {
+      ctx.clearRect(0, 0, size.w, size.h);
+      return;
+    }
+    let raf = 0;
+    const step = () => {
+      const t = transformRef.current;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size.w, size.h);
+      if (!t) return;
+      const now = performance.now();
+      let active = false;
+      for (const fx of effects) {
+        const p = (now - fx.start) / FX_DURATION;
+        if (p < 0 || p >= 1) continue;
+        active = true;
+        const px = fx.x * t.scale + t.ox;
+        const py = fx.y * t.scale + t.oy;
+        const base = 7 * Math.min(t.scale, 1.35);
+        ctx.beginPath();
+        ctx.arc(px, py, base + p * 34, 0, Math.PI * 2);
+        ctx.strokeStyle = fx.color;
+        ctx.globalAlpha = (1 - p) * 0.9;
+        ctx.lineWidth = 3 * (1 - p) + 1;
+        ctx.stroke();
+        if (fx.big) {
+          // 소유지가 넘어간 경우: 이중 링 + 플래시
+          const p2 = Math.max(0, p - 0.18) / 0.82;
+          ctx.beginPath();
+          ctx.arc(px, py, base + p2 * 48, 0, Math.PI * 2);
+          ctx.strokeStyle = fx.color;
+          ctx.globalAlpha = (1 - p2) * 0.7;
+          ctx.lineWidth = 2.5 * (1 - p2) + 0.5;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(px, py, base + 4, 0, Math.PI * 2);
+          ctx.fillStyle = fx.color;
+          ctx.globalAlpha = (1 - p) * 0.3;
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      if (active) raf = requestAnimationFrame(step);
+      else ctx.clearRect(0, 0, size.w, size.h);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [effects, size]);
 
   const toScreen = useCallback(
     (x: number, y: number): [number, number] => {
@@ -276,6 +387,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
 
   // ── 인터랙션 ──────────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent) => {
+    camCancelRef.current = true; // 사용자 조작 시 카메라 애니메이션 중단
     (e.target as Element).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const pts = [...pointers.current.values()];
@@ -390,6 +502,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} style={{ width: size.w, height: size.h }} />
+      <canvas ref={fxCanvasRef} className="fx-canvas" style={{ width: size.w, height: size.h }} />
       <div className="zoom-controls" onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}>
         <button onClick={() => zoomBy(1.35)} aria-label="확대">+</button>
         <button onClick={() => zoomBy(1 / 1.35)} aria-label="축소">−</button>
