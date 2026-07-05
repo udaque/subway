@@ -10,6 +10,7 @@ import {
   capturableStations,
   createGame,
   ownedStations,
+  randomDraftPlan,
 } from './game/engine';
 import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
 import { isMuted, setMuted, sfx } from './game/sound';
@@ -173,6 +174,7 @@ export default function App() {
       const room = joinRoom({ appId: APP_ID }, code);
       roomRef.current = room;
       const act = room.makeAction<Action>('act');
+      const bulk = room.makeAction<Action[]>('bulk');
       const start = room.makeAction<{
         mode: VictoryMode;
         turnLimit: number;
@@ -183,6 +185,10 @@ export default function App() {
         void act.send(a);
       };
       act.onMessage = (a) => dispatch(a, { auto: true, fromRemote: true });
+      // 랜덤 배정 등 일괄 액션은 연출 없이 조용히 적용
+      bulk.onMessage = (actions) => {
+        setState((s) => (s ? actions.reduce((acc, a) => applyAction(acc, a), s) : s));
+      };
       setConfig(cfg);
       setNet({
         role: isHost ? 'host' : 'guest',
@@ -213,7 +219,15 @@ export default function App() {
               seats,
             });
             setNet((n) => (n ? { ...n, status: 'connected' } : n));
-            setState(createGame(cfg.mode, cfg.turnLimit, cfg.playerCount));
+            const initial = createGame(cfg.mode, cfg.turnLimit, cfg.playerCount);
+            if (cfg.draftMode === 'random') {
+              // 방장이 랜덤 배치를 생성해 전원에게 중계 → 동일한 상태로 시작
+              const plan = randomDraftPlan(initial);
+              setState(plan.state);
+              void bulk.send(plan.actions);
+            } else {
+              setState(initial);
+            }
           }
         };
       } else {
@@ -307,7 +321,8 @@ export default function App() {
             void beginOnline(cfg);
           } else {
             setConfig(cfg);
-            setState(createGame(cfg.mode, cfg.turnLimit));
+            const initial = createGame(cfg.mode, cfg.turnLimit);
+            setState(cfg.draftMode === 'random' ? randomDraftPlan(initial).state : initial);
           }
         }}
       />

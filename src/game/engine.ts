@@ -321,6 +321,32 @@ function decideTurnLimitWinner(state: GameState): PlayerId | 'draw' {
   return top.length === 1 ? top[0] : 'draw';
 }
 
+/**
+ * 랜덤 시작 배치: 각 플레이어가 10AP를 살 수 있는 만큼 꽉 채워
+ * 무작위 역을 뽑는 드래프트를 자동 진행한 액션 목록과 결과 상태.
+ * (온라인에서는 방장이 생성해 액션을 중계 → 전원 동일 상태)
+ */
+export function randomDraftPlan(initial: GameState): { actions: Action[]; state: GameState } {
+  let s = initial;
+  const actions: Action[] = [];
+  let guard = 0;
+  while (s.phase === 'draft' && guard++ < 400) {
+    const affordable = STATIONS.filter((st) => canDraftPick(s, st.id));
+    const action: Action =
+      affordable.length === 0
+        ? { type: 'draftDone' }
+        : {
+            type: 'draftPick',
+            station: affordable[Math.floor(Math.random() * affordable.length)].id,
+          };
+    const next = applyAction(s, action);
+    if (next === s) break; // 안전장치 (진행 불가 상태)
+    actions.push(action);
+    s = next;
+  }
+  return { actions, state: s };
+}
+
 /** 액션 적용. 불가능한 액션이면 원본 상태 그대로 반환. */
 export function applyAction(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state;
