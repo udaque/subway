@@ -400,12 +400,14 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
         lastY: e.clientY,
       };
     } else if (pts.length === 2 && transform) {
+      const rect = wrapRef.current?.getBoundingClientRect();
       gesture.current = {
         startDist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
         startScale: transform.scale,
         moved: true,
-        lastX: (pts[0].x + pts[1].x) / 2,
-        lastY: (pts[0].y + pts[1].y) / 2,
+        // 핀치 중에는 rect 기준 중간점을 추적 (두 손가락 드래그 = 팬)
+        lastX: (pts[0].x + pts[1].x) / 2 - (rect?.left ?? 0),
+        lastY: (pts[0].y + pts[1].y) / 2 - (rect?.top ?? 0),
       };
     }
   };
@@ -437,11 +439,18 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
       const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
       const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
       const factor = g.startDist > 0 ? dist / g.startDist : 1;
+      // 중간점 이동량 = 두 손가락 드래그에 의한 팬
+      const dmx = midX - g.lastX;
+      const dmy = midY - g.lastY;
+      g.lastX = midX;
+      g.lastY = midY;
       setTransform((t) => {
         if (!t) return t;
         const ns = Math.min(6, Math.max(0.3, g.startScale * factor));
         const k = ns / t.scale;
-        return { scale: ns, ox: midX - (midX - t.ox) * k, oy: midY - (midY - t.oy) * k };
+        const ox = t.ox + dmx;
+        const oy = t.oy + dmy;
+        return { scale: ns, ox: midX - (midX - ox) * k, oy: midY - (midY - oy) * k };
       });
     }
   };
@@ -456,7 +465,20 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
         if (id) onStationClick(id);
       }
     }
-    if (pointers.current.size === 0) gesture.current = null;
+    if (pointers.current.size === 0) {
+      gesture.current = null;
+    } else if (pointers.current.size === 1) {
+      // 핀치 → 팬 전환: 남은 손가락 위치로 기준점을 다시 잡는다.
+      // (이걸 안 하면 이전 핀치 중간점과의 차이만큼 화면이 순간이동한다)
+      const [rem] = pointers.current.values();
+      gesture.current = {
+        startDist: 0,
+        startScale: transform?.scale ?? 1,
+        moved: true,
+        lastX: rem.x,
+        lastY: rem.y,
+      };
+    }
   };
 
   const onWheel = (e: React.WheelEvent) => {
