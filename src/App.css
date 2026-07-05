@@ -261,6 +261,18 @@ body {
   flex-shrink: 0;
 }
 
+.legend-tier-downtown {
+  background: #ffd980;
+}
+
+.legend-tier-normal {
+  background: #f0ece2;
+}
+
+.legend-tier-terminal {
+  background: #9aa3b0;
+}
+
 .legend-surface {
   border: 1.5px dashed #555c68;
 }

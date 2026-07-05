@@ -5,7 +5,12 @@ import type { CaptureInfo } from '../game/engine';
 import { draftInfo, isHqStation, RULES, stationDefense, stationProduction } from '../game/engine';
 
 export const PLAYER_COLORS = ['#ff5d5d', '#4d9fff'] as const;
-export const NEUTRAL_COLOR = '#f0ece2';
+/** 중립 역 채움색 — 생산 등급이 한눈에 보이도록 */
+export const TIER_FILL = {
+  downtown: '#ffd980', // 도심핵심 (생산 3)
+  normal: '#f0ece2', // 보통 (생산 2)
+  terminal: '#9aa3b0', // 변두리·시종착 (생산 1)
+} as const;
 
 const DEPTH_LABEL = { surface: '지상', underground: '지하', deep: '심층' } as const;
 const TIER_LABEL = { downtown: '도심핵심', normal: '보통', terminal: '변두리' } as const;
@@ -310,7 +315,7 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
       // 본체
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = owner === null ? NEUTRAL_COLOR : PLAYER_COLORS[owner];
+      ctx.fillStyle = owner === null ? TIER_FILL[s.cityTier] : PLAYER_COLORS[owner];
       ctx.fill();
 
       // 테두리 = 깊이 표현
@@ -536,6 +541,15 @@ export default function MapCanvas({ state, highlights, effects, focus, onStation
           <div className="legend-formula">
             비용 = 기본 {RULES.captureBaseCost} + 방어력
             <span className="legend-dim"> (+{RULES.enemyOwnedSurcharge} 적 점령지, ×{RULES.riverCostMultiplier} 한강 도하)</span>
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-tier-downtown" /> 도심핵심 — 생산 3/턴
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-tier-normal" /> 보통 — 생산 2 · <span className="legend-dot legend-tier-terminal" /> 변두리 — 생산 1
+          </div>
+          <div className="legend-row">
+            <span className="legend-dot legend-tier-normal" style={{ width: 17, height: 17 }} /> 큰 원 = 환승역 — 노선당 생산 +1 (최대 +3)
           </div>
           <div className="legend-row">
             <span className="legend-dot legend-surface" /> 지상역 — 방어 0 (뚫기 쉬움)
