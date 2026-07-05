@@ -120,6 +120,9 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
 
     const t = transform;
     const S = t.scale;
+    // 노드/라벨/배지 등 UI 요소는 줌인해도 일정 크기 이상 커지지 않게 상한을 둔다.
+    // (줌인 = 역 간격이 벌어지는 것이지, 요소가 거대해지는 게 아님)
+    const ui = Math.min(S, 1.35);
 
     ctx.fillStyle = '#12151a';
     ctx.fillRect(0, 0, size.w, size.h);
@@ -136,7 +139,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       }
     });
     ctx.strokeStyle = 'rgba(70, 130, 200, 0.30)';
-    ctx.lineWidth = 18 * S;
+    ctx.lineWidth = 18 * Math.min(S, 2.2);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -152,7 +155,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       ctx.moveTo(ax, ay);
       ctx.lineTo(bx, by);
       ctx.strokeStyle = LINE_COLORS[e.line];
-      ctx.lineWidth = Math.max(1.5, 3 * S);
+      ctx.lineWidth = Math.max(1.5, Math.min(4.5, 3 * S));
       ctx.setLineDash([]);
       ctx.stroke();
       if (e.river) {
@@ -161,8 +164,8 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
         ctx.moveTo(ax, ay);
         ctx.lineTo(bx, by);
         ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-        ctx.lineWidth = Math.max(0.8, 1.2 * S);
-        ctx.setLineDash([4 * S, 4 * S]);
+        ctx.lineWidth = Math.max(0.8, Math.min(1.8, 1.2 * S));
+        ctx.setLineDash([4 * ui, 4 * ui]);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -175,7 +178,7 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       const owner = state.owners[s.id] ?? null;
       const isHq = isHqStation(state, s.id);
       const isTransfer = s.lines.length > 1;
-      const r = (isTransfer ? 7 : 5) * S;
+      const r = (isTransfer ? 7 : 5) * ui;
 
       const cap = highlights.capturable.get(s.id);
       // 본진 선택 단계: 선택 불가(상대 본진 인접) 역만 흐리게
@@ -185,10 +188,10 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       // 점령 가능 글로우
       if (cap) {
         ctx.beginPath();
-        ctx.arc(px, py, r + 4.5 * S, 0, Math.PI * 2);
+        ctx.arc(px, py, r + 4 * ui, 0, Math.PI * 2);
         ctx.strokeStyle = `${PLAYER_COLORS[state.current]}cc`;
-        ctx.lineWidth = 2.5 * S;
-        ctx.setLineDash(cap.cost > state.ap[state.current] ? [3 * S, 3 * S] : []);
+        ctx.lineWidth = 2.2 * ui;
+        ctx.setLineDash(cap.cost > state.ap[state.current] ? [3 * ui, 3 * ui] : []);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -203,35 +206,35 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.strokeStyle = '#1a1d23';
-      ctx.lineWidth = (s.depth === 'deep' ? 2.6 : 1.4) * S;
-      if (s.depth === 'surface') ctx.setLineDash([2.2 * S, 2.2 * S]);
+      ctx.lineWidth = (s.depth === 'deep' ? 2.6 : 1.4) * ui;
+      if (s.depth === 'surface') ctx.setLineDash([2.2 * ui, 2.2 * ui]);
       ctx.stroke();
       ctx.setLineDash([]);
       if (s.depth === 'deep') {
         ctx.beginPath();
-        ctx.arc(px, py, r - 2.4 * S, 0, Math.PI * 2);
+        ctx.arc(px, py, r - 2.4 * ui, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(26,29,35,0.8)';
-        ctx.lineWidth = 1 * S;
+        ctx.lineWidth = 1 * ui;
         ctx.stroke();
       }
 
       // 본진 링
       if (isHq) {
         ctx.beginPath();
-        ctx.arc(px, py, r + 2.2 * S, 0, Math.PI * 2);
+        ctx.arc(px, py, r + 2.2 * ui, 0, Math.PI * 2);
         ctx.strokeStyle = '#ffd166';
-        ctx.lineWidth = 2.2 * S;
+        ctx.lineWidth = 2.2 * ui;
         ctx.stroke();
       }
 
       // 라벨
       const showLabel = showAllLabels || isHq || hovered === s.id || cap !== undefined;
       if (showLabel) {
-        const fs = Math.max(9, 9.5 * S);
+        const fs = Math.max(9, Math.min(12.5, 9.5 * S));
         ctx.font = `${isHq ? 'bold ' : ''}${fs}px 'Pretendard', 'Apple SD Gothic Neo', sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        const ly = py + r + 2.5 * S;
+        const ly = py + r + 3;
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(18,21,26,0.85)';
         ctx.strokeText(s.name, px, ly);
@@ -242,10 +245,10 @@ export default function MapCanvas({ state, highlights, onStationClick }: Props) 
       // 비용 배지
       if (cap) {
         const affordable = cap.cost <= state.ap[state.current];
-        const bx = px + r + 3 * S;
-        const by = py - r - 3 * S;
+        const bx = px + r + 3;
+        const by = py - r - 3;
         const label = `${cap.cost}`;
-        const fs = Math.max(9, 10 * S);
+        const fs = Math.max(9, Math.min(11.5, 10 * S));
         ctx.font = `bold ${fs}px sans-serif`;
         const tw = ctx.measureText(label).width;
         const bw = tw + 8;

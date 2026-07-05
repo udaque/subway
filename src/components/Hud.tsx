@@ -93,7 +93,14 @@ export default function Hud({
           </div>
           <PlayerCard state={state} player={1} label={playerLabels[1]} />
         </div>
-        <div className="hud-actions">
+        <div
+          className="hud-actions"
+          data-round={
+            state.mode === 'turnLimit'
+              ? `${Math.min(state.round, state.turnLimit)}/${state.turnLimit}R`
+              : `${state.round}R`
+          }
+        >
           {state.phase === 'draft' && (
             <button
               className="btn-end-turn"

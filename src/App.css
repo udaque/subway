@@ -365,7 +365,6 @@ body {
   inset: 0;
   background: rgba(10, 12, 16, 0.82);
   display: flex;
-  align-items: center;
   justify-content: center;
   z-index: 100;
   padding: 18px;
@@ -380,6 +379,9 @@ body {
   border-radius: 18px;
   padding: 28px;
   text-align: center;
+  /* 카드가 화면보다 길어도 위가 잘리지 않게 (flex 중앙정렬 + 스크롤 호환) */
+  margin: auto;
+  height: fit-content;
 }
 
 .setup-card h1 {
@@ -506,13 +508,16 @@ body {
   font-size: 30px;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 700px) {
   .mode-grid {
     grid-template-columns: 1fr;
   }
 
+  /* 헤더: 1행 = 플레이어 현황, 2행 = 라운드 + 버튼 */
   .hud {
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     padding: 7px 10px;
   }
 
@@ -522,5 +527,54 @@ body {
 
   .hud-players {
     min-width: 0;
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .hud-players .hud-round {
+    display: none;
+  }
+
+  .player-card {
+    flex: 1;
+    min-width: 0;
+    justify-content: space-between;
+    padding: 4px 8px;
+    gap: 5px;
+  }
+
+  .player-name {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-stat {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .player-stat small {
+    font-size: 9px;
+  }
+
+  .hud-actions {
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .hud-actions::before {
+    content: attr(data-round);
+    font-size: 13px;
+    color: #8b93a1;
+    font-weight: 600;
+  }
+
+  .btn-end-turn,
+  .btn-ghost {
+    padding: 7px 14px;
   }
 }
