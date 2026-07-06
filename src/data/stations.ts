@@ -1061,6 +1061,11 @@ for (const [lineKey, seqs] of Object.entries(LINE_SEQUENCES)) {
   }
 }
 
+/** 열차 애니메이션용 노선 경로 (본선/지선 각각 하나의 경로) */
+export const LINE_PATHS: Array<{ line: LineId; stations: string[] }> = (
+  Object.keys(LINE_SEQUENCES) as LineId[]
+).flatMap((line) => LINE_SEQUENCES[line].map((stations) => ({ line, stations })));
+
 // 한강 렌더링용 폴리라인 (도하 엣지 중점들을 지나는 곡선)
 export const RIVER_PATH: Array<[number, number]> = [
   [-360, 225],

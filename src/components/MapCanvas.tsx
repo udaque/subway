@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EDGES, LINE_BADGE, LINE_COLORS, RIVER_PATH, STATIONS, STATION_BY_ID } from '../data/stations';
+import {
+  EDGES,
+  LINE_BADGE,
+  LINE_COLORS,
+  LINE_PATHS,
+  RIVER_PATH,
+  STATIONS,
+  STATION_BY_ID,
+} from '../data/stations';
 import type { GameState } from '../game/types';
 import type { CaptureInfo } from '../game/engine';
 import { defenseOf, draftInfo, isHqStation, RULES, stationProduction } from '../game/engine';
@@ -75,6 +83,43 @@ function fitTransform(w: number, h: number): Transform {
 }
 
 const FX_DURATION = 800;
+
+// ── 서울 지형 배경 (도식화 좌표, 게임 좌표계 기준 근사) ──────
+/** 산 능선 폴리곤 — 북한산·도봉산, 관악산, 남산, 청계산, 아차산, 인왕·북악 */
+const MOUNTAINS: Array<Array<[number, number]>> = [
+  [[300, 235], [340, 160], [385, 118], [428, 168], [468, 128], [518, 88], [558, 118], [598, 52], [625, 18], [655, 45], [700, 95], [706, 235]],
+  [[268, 802], [330, 740], [365, 754], [410, 746], [462, 802]],
+  [[404, 556], [433, 520], [463, 556]],
+  [[558, 816], [614, 758], [660, 774], [706, 816]],
+  [[648, 482], [678, 424], [706, 454], [726, 482]],
+  [[284, 406], [314, 354], [344, 394], [374, 358], [401, 401]],
+];
+
+/** 서울 시계(市界) 근사 폴리곤 */
+const SEOUL_BOUNDARY: Array<[number, number]> = [
+  [75, 452], [92, 398], [118, 330], [128, 242], [200, 190], [330, 148], [420, 82],
+  [560, 42], [640, 8], [692, 22], [700, 148], [732, 298], [742, 330], [782, 402],
+  [842, 422], [892, 482], [926, 556], [906, 602], [880, 700], [852, 712], [800, 702],
+  [762, 722], [640, 742], [560, 732], [470, 686], [430, 722], [330, 762], [250, 752],
+  [162, 726], [130, 642], [58, 522],
+];
+
+/** 랜드마크 아이콘 (역 노드 아래 레이어에 그려짐) */
+const LANDMARKS: Array<{ x: number; y: number; icon: string }> = [
+  { x: 433, y: 512, icon: '🗼' }, // N서울타워
+  { x: 784, y: 640, icon: '🏢' }, // 롯데월드타워
+  { x: 286, y: 580, icon: '🌇' }, // 63빌딩·여의도
+  { x: 332, y: 390, icon: '🏛️' }, // 경복궁
+  { x: 193, y: 379, icon: '🏟️' }, // 서울월드컵경기장
+  { x: 700, y: 660, icon: '⚾' }, // 잠실야구장
+  { x: -300, y: 560, icon: '✈️' }, // 인천공항
+  { x: 100, y: 468, icon: '✈️' }, // 김포공항
+  { x: 368, y: 1006, icon: '🏰' }, // 수원화성
+  { x: 1252, y: 1176, icon: '🎢' }, // 에버랜드
+  { x: -216, y: 966, icon: '⚓' }, // 인천항
+  { x: 846, y: 616, icon: '🌳' }, // 올림픽공원
+  { x: 1162, y: 416, icon: '🐔' }, // 춘천 닭갈비
+];
 
 export default function MapCanvas({
   state,
@@ -220,6 +265,59 @@ export default function MapCanvas({
     return () => cancelAnimationFrame(raf);
   }, [effects, size]);
 
+  // ── 달리는 열차 (상시 저부하 애니메이션, 감속 왕복) ─────────
+  const trainCanvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = trainCanvasRef.current;
+    if (!canvas || size.w === 0) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size.w * dpr;
+    canvas.height = size.h * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let raf = 0;
+    let last = 0;
+    const SEG_MS = 2600; // 한 구간 통과 시간
+    const step = (now: number) => {
+      raf = requestAnimationFrame(step);
+      if (now - last < 33) return; // ~30fps 제한
+      last = now;
+      const t = transformRef.current;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size.w, size.h);
+      if (!t) return;
+      const uiT = Math.min(t.scale, 1.35);
+      for (let li = 0; li < LINE_PATHS.length; li++) {
+        const path = LINE_PATHS[li];
+        const n = path.stations.length;
+        if (n < 2) continue;
+        // 왕복(핑퐁) 진행 — 노선마다 위상을 다르게
+        const total = (n - 1) * SEG_MS;
+        const cycle = (now + li * 7919) % (total * 2);
+        const dist = cycle < total ? cycle : total * 2 - cycle;
+        const seg = Math.min(n - 2, Math.floor(dist / SEG_MS));
+        const frac = dist / SEG_MS - seg;
+        const A = STATION_BY_ID[path.stations[seg]];
+        const B = STATION_BY_ID[path.stations[seg + 1]];
+        if (!A || !B) continue;
+        const x = (A.x + (B.x - A.x) * frac) * t.scale + t.ox;
+        const y = (A.y + (B.y - A.y) * frac) * t.scale + t.oy;
+        if (x < -10 || y < -10 || x > size.w + 10 || y > size.h + 10) continue;
+        const r = 2.6 * uiT;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = LINE_COLORS[path.line];
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = Math.max(0.8, 1 * uiT);
+        ctx.stroke();
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [size]);
+
   const toScreen = useCallback(
     (x: number, y: number): [number, number] => {
       const t = transform!;
@@ -265,8 +363,43 @@ export default function MapCanvas({
     // (줌인 = 역 간격이 벌어지는 것이지, 요소가 거대해지는 게 아님)
     const ui = Math.min(S, 1.35);
 
-    ctx.fillStyle = '#12151a';
+    // 배경: 노을빛 → 야심한 남색 그라데이션 (타이틀 아트 톤)
+    const bg = ctx.createLinearGradient(0, 0, 0, size.h);
+    bg.addColorStop(0, '#1b1430');
+    bg.addColorStop(0.4, '#151322');
+    bg.addColorStop(1, '#10131a');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, size.w, size.h);
+
+    // 산 능선 (은은한 실루엣)
+    for (const ridge of MOUNTAINS) {
+      ctx.beginPath();
+      ridge.forEach(([x, y], i) => {
+        const [px, py] = toScreen(x, y);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(96, 122, 104, 0.14)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(140, 168, 148, 0.22)';
+      ctx.lineWidth = Math.max(0.8, 1.1 * ui);
+      ctx.stroke();
+    }
+
+    // 서울 시계 (점선)
+    ctx.beginPath();
+    SEOUL_BOUNDARY.forEach(([x, y], i) => {
+      const [px, py] = toScreen(x, y);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(165, 175, 200, 0.16)';
+    ctx.lineWidth = Math.max(1, 1.4 * ui);
+    ctx.setLineDash([7 * ui, 5 * ui]);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
     // 한강
     ctx.beginPath();
@@ -285,6 +418,24 @@ export default function MapCanvas({
     ctx.lineJoin = 'round';
     ctx.stroke();
 
+    // 영토 언더레이: 같은 소유주로 이어진 구간을 굵게 깔아 '면'으로 보이게
+    ctx.lineCap = 'round';
+    for (const e of EDGES) {
+      const oa = state.owners[e.a] ?? null;
+      const ob = state.owners[e.b] ?? null;
+      if (oa === null || oa !== ob) continue;
+      const a = STATION_BY_ID[e.a];
+      const b = STATION_BY_ID[e.b];
+      const [ax, ay] = toScreen(a.x, a.y);
+      const [bx, by] = toScreen(b.x, b.y);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.strokeStyle = `${PLAYER_COLORS[oa]}26`;
+      ctx.lineWidth = Math.max(6, Math.min(16, 11 * S));
+      ctx.stroke();
+    }
+
     // 노선 엣지
     ctx.lineCap = 'round';
     for (const e of EDGES) {
@@ -299,6 +450,19 @@ export default function MapCanvas({
       ctx.lineWidth = Math.max(1.5, Math.min(4.5, 3 * S));
       ctx.setLineDash([]);
       ctx.stroke();
+      // 전선(戰線): 서로 다른 플레이어가 맞닿은 구간 경고 표시
+      const oa = state.owners[e.a] ?? null;
+      const ob = state.owners[e.b] ?? null;
+      if (oa !== null && ob !== null && oa !== ob) {
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.strokeStyle = 'rgba(255, 120, 120, 0.75)';
+        ctx.lineWidth = Math.max(1.2, 1.8 * ui);
+        ctx.setLineDash([3 * ui, 3 * ui]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       if (e.river) {
         // 도하 구간 표시 (흰 점선 오버레이)
         ctx.beginPath();
@@ -310,6 +474,31 @@ export default function MapCanvas({
         ctx.stroke();
         ctx.setLineDash([]);
       }
+    }
+
+    // 랜드마크 아이콘 (역 노드보다 아래 레이어, 줌 배율 따라 페이드)
+    const lmAlpha = Math.max(0.3, Math.min(0.9, (S - 0.35) * 1.6));
+    const lmSize = Math.max(11, Math.min(17, 13 * S));
+    ctx.font = `${lmSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = lmAlpha;
+    for (const lm of LANDMARKS) {
+      const [px, py] = toScreen(lm.x, lm.y);
+      if (px < -20 || py < -20 || px > size.w + 20 || py > size.h + 20) continue;
+      ctx.fillText(lm.icon, px, py);
+    }
+    ctx.globalAlpha = 1;
+
+    // 영토 글로우 (소유 역 주변 은은한 발광)
+    for (const s of STATIONS) {
+      const owner = state.owners[s.id] ?? null;
+      if (owner === null) continue;
+      const [px, py] = toScreen(s.x, s.y);
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(9, Math.min(24, 15 * S)), 0, Math.PI * 2);
+      ctx.fillStyle = `${PLAYER_COLORS[owner]}1e`;
+      ctx.fill();
     }
 
     // 바리케이드 마커 (엣지 중점: 어두운 원판 + 설치자 색 ✕)
@@ -644,6 +833,7 @@ export default function MapCanvas({
       onWheel={onWheel}
     >
       <canvas ref={canvasRef} style={{ width: size.w, height: size.h }} />
+      <canvas ref={trainCanvasRef} className="fx-canvas" style={{ width: size.w, height: size.h }} />
       <canvas ref={fxCanvasRef} className="fx-canvas" style={{ width: size.w, height: size.h }} />
       <div className="zoom-controls" onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}>
         <button onClick={() => zoomBy(1.35)} aria-label="확대">+</button>
