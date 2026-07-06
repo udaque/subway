@@ -311,7 +311,7 @@ export default function MapCanvas({
       }
     }
 
-    // 바리케이드 마커 (엣지 중점에 이중 빗장)
+    // 바리케이드 마커 (엣지 중점: 어두운 원판 + 설치자 색 ✕)
     for (const key of Object.keys(state.barricades)) {
       const [aId, bId] = key.split('|');
       const A = STATION_BY_ID[aId];
@@ -321,21 +321,22 @@ export default function MapCanvas({
       const [bx, by] = toScreen(B.x, B.y);
       const mx = (ax + bx) / 2;
       const my = (ay + by) / 2;
-      const perp = Math.atan2(by - ay, bx - ax) + Math.PI / 2;
-      const len = 6 * ui;
-      const dx = Math.cos(perp) * len;
-      const dy = Math.sin(perp) * len;
-      const along = Math.atan2(by - ay, bx - ax);
-      const off = 2.4 * ui;
-      const ox2 = Math.cos(along) * off;
-      const oy2 = Math.sin(along) * off;
+      const s = 4.6 * ui;
+      ctx.beginPath();
+      ctx.arc(mx, my, s + 2.6 * ui, 0, Math.PI * 2);
+      ctx.fillStyle = '#12151a';
+      ctx.fill();
+      ctx.strokeStyle = '#e8eaed';
+      ctx.lineWidth = 1 * ui;
+      ctx.stroke();
       ctx.strokeStyle = PLAYER_COLORS[state.barricades[key]];
       ctx.lineWidth = 2.4 * ui;
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(mx - ox2 - dx, my - oy2 - dy);
-      ctx.lineTo(mx - ox2 + dx, my - oy2 + dy);
-      ctx.moveTo(mx + ox2 - dx, my + oy2 - dy);
-      ctx.lineTo(mx + ox2 + dx, my + oy2 + dy);
+      ctx.moveTo(mx - s, my - s);
+      ctx.lineTo(mx + s, my + s);
+      ctx.moveTo(mx + s, my - s);
+      ctx.lineTo(mx - s, my + s);
       ctx.stroke();
     }
 
@@ -398,14 +399,25 @@ export default function MapCanvas({
         ctx.stroke();
       }
 
-      // 요새화 링 (레벨만큼 두껍게)
+      // 요새화 — 육각형 테두리 (원형 링들과 형태로 구분, 레벨 2는 이중)
       const fort = state.fortifications[s.id] ?? 0;
       if (fort > 0) {
-        ctx.beginPath();
-        ctx.arc(px, py, r + (isHq ? 4.4 : 2.4) * ui, 0, Math.PI * 2);
-        ctx.strokeStyle = '#e8eaed';
-        ctx.lineWidth = fort * 1.2 * ui;
-        ctx.stroke();
+        const hex = (R: number) => {
+          ctx.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = -Math.PI / 2 + (k * Math.PI) / 3;
+            const hx = px + R * Math.cos(a);
+            const hy = py + R * Math.sin(a);
+            if (k === 0) ctx.moveTo(hx, hy);
+            else ctx.lineTo(hx, hy);
+          }
+          ctx.closePath();
+          ctx.strokeStyle = '#cfd8e3';
+          ctx.lineWidth = 1.7 * ui;
+          ctx.stroke();
+        };
+        hex(r + (isHq ? 5.2 : 3.8) * ui);
+        if (fort > 1) hex(r + (isHq ? 7.6 : 6.2) * ui);
       }
 
       // 터치 선택 링
@@ -672,10 +684,10 @@ export default function MapCanvas({
             <span className="legend-river">⚔</span> 포위: 적 역이 내 역 {RULES.surroundHalfAt}곳과 인접 → ½, {RULES.surroundFreeAt}곳 이상 → 무료
           </div>
           <div className="legend-row">
-            <span className="legend-river">🛡</span> 요새화(내 역): 방어 +1, 최대 +{RULES.fortifyMaxLevel} · {RULES.fortifyCost}AP — 뺏기면 파괴
+            <span className="legend-river">⬡</span> 육각 테두리 = 요새화(내 역): 방어 +1, 최대 +{RULES.fortifyMaxLevel} · {RULES.fortifyCost}AP — 뺏기면 파괴
           </div>
           <div className="legend-row">
-            <span className="legend-river">🚧</span> 바리케이드(내 역 인접 구간): 그 구간 공격 +{RULES.barricadeSurcharge}AP · 뚫리면 소멸
+            <span className="legend-river">✕</span> 구간 위 ✕ = 바리케이드: 그 구간 공격 +{RULES.barricadeSurcharge}AP · 뚫리면 소멸
           </div>
           <div className="legend-row">
             <span className="legend-river">📉</span> 수확 체감: 실수령 = ⌈수입^{RULES.incomeExponent}⌉
