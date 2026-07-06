@@ -9,6 +9,7 @@ import {
   canDraftPick,
   capturableStations,
   createGame,
+  grantInitialHarvest,
   ownedStations,
   randomDraftPlan,
 } from './game/engine';
@@ -185,9 +186,11 @@ export default function App() {
         void act.send(a);
       };
       act.onMessage = (a) => dispatch(a, { auto: true, fromRemote: true });
-      // 랜덤 배정 등 일괄 액션은 연출 없이 조용히 적용
+      // 랜덤 배정 등 일괄 액션은 연출 없이 조용히 적용 (+ 개전 수확)
       bulk.onMessage = (actions) => {
-        setState((s) => (s ? actions.reduce((acc, a) => applyAction(acc, a), s) : s));
+        setState((s) =>
+          s ? grantInitialHarvest(actions.reduce((acc, a) => applyAction(acc, a), s)) : s,
+        );
       };
       setConfig(cfg);
       setNet({
@@ -223,7 +226,7 @@ export default function App() {
             if (cfg.draftMode === 'random') {
               // 방장이 랜덤 배치를 생성해 전원에게 중계 → 동일한 상태로 시작
               const plan = randomDraftPlan(initial);
-              setState(plan.state);
+              setState(grantInitialHarvest(plan.state));
               void bulk.send(plan.actions);
             } else {
               setState(initial);
@@ -322,7 +325,11 @@ export default function App() {
           } else {
             setConfig(cfg);
             const initial = createGame(cfg.mode, cfg.turnLimit);
-            setState(cfg.draftMode === 'random' ? randomDraftPlan(initial).state : initial);
+            setState(
+              cfg.draftMode === 'random'
+                ? grantInitialHarvest(randomDraftPlan(initial).state)
+                : initial,
+            );
           }
         }}
       />

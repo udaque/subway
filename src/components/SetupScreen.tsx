@@ -29,7 +29,7 @@ export default function SetupScreen({ onStart }: Props) {
   const [joinCode, setJoinCode] = useState('');
   const [playerCount, setPlayerCount] = useState(2);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
-  const [draftMode, setDraftMode] = useState<'manual' | 'random'>('manual');
+  const [draftMode, setDraftMode] = useState<'manual' | 'random'>('random');
 
   const opponent: Opponent =
     opponentKind === 'online' ? (onlineRole === 'host' ? 'online-host' : 'online-guest') : opponentKind;
@@ -134,18 +134,18 @@ export default function SetupScreen({ onStart }: Props) {
             <div className="section-label">시작 배치</div>
             <div className="mode-grid">
               <button
-                className={`mode-card ${draftMode === 'manual' ? 'selected' : ''}`}
-                onClick={() => setDraftMode('manual')}
-              >
-                <div className="mode-name">🎯 직접 선택</div>
-                <div className="mode-desc">10AP로 시작 역들을 번갈아 드래프트</div>
-              </button>
-              <button
                 className={`mode-card ${draftMode === 'random' ? 'selected' : ''}`}
                 onClick={() => setDraftMode('random')}
               >
                 <div className="mode-name">🎲 랜덤 배정</div>
                 <div className="mode-desc">10AP를 꽉 채워 무작위 역 자동 배정 — 바로 시작</div>
+              </button>
+              <button
+                className={`mode-card ${draftMode === 'manual' ? 'selected' : ''}`}
+                onClick={() => setDraftMode('manual')}
+              >
+                <div className="mode-name">🎯 직접 선택</div>
+                <div className="mode-desc">10AP로 시작 역들을 번갈아 드래프트</div>
               </button>
             </div>
 

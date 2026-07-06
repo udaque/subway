@@ -347,6 +347,18 @@ export function randomDraftPlan(initial: GameState): { actions: Action[]; state:
   return { actions, state: s };
 }
 
+/**
+ * 개전 수확: 전원에게 첫 수확을 미리 지급한다.
+ * 랜덤 배정은 드래프트에서 AP를 전부 소진하므로, 턴 종료 없이 바로
+ * 플레이할 수 있도록 시작 시점에 한 번 수확해 준다. (결정적 연산)
+ */
+export function grantInitialHarvest(state: GameState): GameState {
+  const ap = state.ap.map((a, p) =>
+    Math.min(a + effectiveIncome(state, p), apCap(state, p)),
+  );
+  return { ...state, ap, log: [...state.log, '개전 수확 — 전원 첫 수입 지급'] };
+}
+
 /** 액션 적용. 불가능한 액션이면 원본 상태 그대로 반환. */
 export function applyAction(state: GameState, action: Action): GameState {
   if (state.phase === 'over') return state;
