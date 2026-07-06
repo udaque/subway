@@ -568,6 +568,70 @@ body {
   font-size: 16px;
 }
 
+/* ── 챌린지(업적) ─────────────────────────── */
+.challenge-card {
+  max-height: min(620px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
+}
+
+.challenge-card h1 {
+  font-size: 20px;
+}
+
+.challenge-list {
+  overflow-y: auto;
+  text-align: left;
+  margin-top: 8px;
+}
+
+.challenge-tier {
+  font-size: 12px;
+  font-weight: 800;
+  color: #aab1bd;
+  letter-spacing: 0.06em;
+  margin: 12px 2px 6px;
+}
+
+.challenge-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: rgba(35, 40, 50, 0.6);
+  border: 1px solid #2c323d;
+  border-radius: 10px;
+  color: #e8eaed;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 13.5px;
+  opacity: 0.42; /* 미달성은 옅게 */
+}
+
+.challenge-item.done {
+  opacity: 1;
+  border-color: #4a5261;
+  background: rgba(43, 50, 63, 0.85);
+}
+
+.challenge-title {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.challenge-check {
+  font-size: 12px;
+}
+
+.challenge-cond {
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: #b8bfcb;
+  font-weight: 400;
+}
+
 /* ── 튜토리얼 ────────────────────────────── */
 .tut-head {
   display: flex;

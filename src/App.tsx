@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Room } from 'trystero';
 import MapCanvas, { PLAYER_COLORS } from './components/MapCanvas';
 import type { MapEffect, MapHighlights } from './components/MapCanvas';
+import ChallengeScreen from './components/ChallengeScreen';
 import Hud from './components/Hud';
 import LandingScreen from './components/LandingScreen';
 import SetupScreen, { type GameConfig } from './components/SetupScreen';
@@ -16,6 +17,7 @@ import {
   randomDraftPlan,
 } from './game/engine';
 import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
+import { recordModeWin, unlock, type AchievementDef } from './game/achievements';
 import { captureAnnouncement, endAnnouncement, startAnnouncement } from './game/announcer';
 import { isMuted, setMuted, sfx } from './game/sound';
 import { STATIONS, STATION_BY_ID } from './data/stations';
@@ -44,7 +46,9 @@ function genRoomCode(): string {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'landing' | 'setup' | 'tutorial'>('landing');
+  const [screen, setScreen] = useState<'landing' | 'setup' | 'tutorial' | 'challenges'>(
+    'landing',
+  );
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [effects, setEffects] = useState<MapEffect[]>([]);
@@ -267,6 +271,29 @@ export default function App() {
         if (next.winner === 'draw' || viewer === null || next.winner === viewer) sfx.win();
         else sfx.lose();
         say(endAnnouncement(next, viewer));
+      }
+
+      // ── 챌린지 달성 체크 (시점 플레이어가 있는 게임만 — 로컬 2인 제외) ──
+      if (viewer !== null) {
+        const newly: Array<AchievementDef | null> = [];
+        const owned = ownedStations(next, viewer).length;
+        if (owned >= 20) newly.push(unlock('capture20'));
+        if (owned >= 100) newly.push(unlock('capture100'));
+        if (owned >= STATIONS.length) newly.push(unlock('captureAll'));
+        if (next.phase === 'over') {
+          if (netRef.current) newly.push(unlock('online'));
+          if (next.winner === viewer) {
+            if (cfg?.opponent === 'ai' && cfg.difficulty === 'normal')
+              newly.push(unlock('clearNormal'));
+            if (cfg?.opponent === 'ai' && cfg.difficulty === 'hard') newly.push(unlock('clearHard'));
+            if (cfg?.draftMode === 'manual') newly.push(unlock('manualClear'));
+            newly.push(recordModeWin(next.mode));
+          }
+        }
+        const got = newly.filter((a): a is AchievementDef => a !== null);
+        if (got.length > 0) {
+          say(`🏆 챌린지 달성 — ${got.map((a) => a.title).join(' · ')}`);
+        }
       }
 
       setState(next);
@@ -523,6 +550,9 @@ export default function App() {
     if (screen === 'tutorial') {
       return <TutorialScreen onExit={() => setScreen('landing')} />;
     }
+    if (screen === 'challenges') {
+      return <ChallengeScreen onExit={() => setScreen('landing')} />;
+    }
     if (screen === 'setup') {
       return (
         <SetupScreen
@@ -544,7 +574,11 @@ export default function App() {
       );
     }
     return (
-      <LandingScreen onPlay={() => setScreen('setup')} onTutorial={() => setScreen('tutorial')} />
+      <LandingScreen
+        onPlay={() => setScreen('setup')}
+        onTutorial={() => setScreen('tutorial')}
+        onChallenges={() => setScreen('challenges')}
+      />
     );
   }
 

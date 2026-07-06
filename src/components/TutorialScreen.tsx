@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RULES } from '../game/engine';
+import { unlock } from '../game/achievements';
 import { sfx } from '../game/sound';
 import { PLAYER_COLORS, TIER_FILL } from './MapCanvas';
 import type { CityTier, Depth } from '../game/types';
@@ -397,6 +398,7 @@ export default function TutorialScreen({ onExit }: Props) {
   const nextStep = () => {
     if (stepIdx + 1 >= STEPS.length) {
       setAllDone(true);
+      unlock('tutorial');
       sfx.win();
     } else {
       setStepIdx(stepIdx + 1);
