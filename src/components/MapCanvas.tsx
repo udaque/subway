@@ -85,16 +85,6 @@ function fitTransform(w: number, h: number): Transform {
 const FX_DURATION = 800;
 
 // ── 서울 지형 배경 (도식화 좌표, 게임 좌표계 기준 근사) ──────
-/** 산 능선 폴리곤 — 북한산·도봉산, 관악산, 남산, 청계산, 아차산, 인왕·북악 */
-const MOUNTAINS: Array<Array<[number, number]>> = [
-  [[300, 235], [340, 160], [385, 118], [428, 168], [468, 128], [518, 88], [558, 118], [598, 52], [625, 18], [655, 45], [700, 95], [706, 235]],
-  [[268, 802], [330, 740], [365, 754], [410, 746], [462, 802]],
-  [[404, 556], [433, 520], [463, 556]],
-  [[558, 816], [614, 758], [660, 774], [706, 816]],
-  [[648, 482], [678, 424], [706, 454], [726, 482]],
-  [[284, 406], [314, 354], [344, 394], [374, 358], [401, 401]],
-];
-
 /** 서울 시계(市界) 근사 폴리곤 */
 const SEOUL_BOUNDARY: Array<[number, number]> = [
   [75, 452], [92, 398], [118, 330], [128, 242], [200, 190], [330, 148], [420, 82],
@@ -370,22 +360,6 @@ export default function MapCanvas({
     bg.addColorStop(1, '#10131a');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, size.w, size.h);
-
-    // 산 능선 (은은한 실루엣)
-    for (const ridge of MOUNTAINS) {
-      ctx.beginPath();
-      ridge.forEach(([x, y], i) => {
-        const [px, py] = toScreen(x, y);
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(96, 122, 104, 0.14)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(140, 168, 148, 0.22)';
-      ctx.lineWidth = Math.max(0.8, 1.1 * ui);
-      ctx.stroke();
-    }
 
     // 서울 시계 (점선)
     ctx.beginPath();
