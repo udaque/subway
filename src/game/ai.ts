@@ -218,6 +218,7 @@ function aiHard(
     const myHq = state.hq[AI];
     if (
       myHq &&
+      state.owners[myHq] === AI && // 전멸전에선 본진을 뺏겼을 수 있다
       (state.fortifications[myHq] ?? 0) < RULES.fortifyMaxLevel &&
       ap >= RULES.fortifyCost + 4
     ) {

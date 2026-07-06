@@ -155,10 +155,15 @@ export default function App() {
     const timer = setTimeout(() => {
       const s = stateRef.current;
       if (!s || s.phase === 'over' || s.current !== 1) return;
-      const action =
+      let action =
         s.phase === 'draft'
           ? aiDraftAction(s, config.difficulty)
           : aiNextAction(s, config.difficulty);
+      // 안전망: AI가 무효 액션(상태 불변)을 내면 루프가 영원히 멈추므로
+      // 턴 종료(드래프트는 선택 완료)로 강제 진행한다
+      if (applyAction(s, action) === s) {
+        action = s.phase === 'draft' ? { type: 'draftDone' } : { type: 'endTurn' };
+      }
       dispatch(action, { auto: true });
     }, delay);
     return () => clearTimeout(timer);
