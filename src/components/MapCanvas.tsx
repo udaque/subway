@@ -184,8 +184,9 @@ export default function MapCanvas({
       let active = false;
       for (const fx of effects) {
         const p = (now - fx.start) / FX_DURATION;
-        if (p < 0 || p >= 1) continue;
-        active = true;
+        if (p >= 1) continue;
+        active = true; // 아직 시작 전(p<0)인 예약 펄스도 루프를 유지
+        if (p < 0) continue;
         const px = fx.x * t.scale + t.ox;
         const py = fx.y * t.scale + t.oy;
         const base = 7 * Math.min(t.scale, 1.35);

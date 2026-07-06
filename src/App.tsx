@@ -66,6 +66,50 @@ export default function App() {
   const isAi = config?.opponent === 'ai';
   const myPlayer: PlayerId | null = net ? net.seat : null;
 
+  // 개전 인트로: 플레이 시작 순간 적 역들의 위치를 색 펄스로 알려준다
+  // (랜덤 배치는 적진 파악이 어려우므로 특히 유용)
+  const introShownRef = useRef(false);
+  useEffect(() => {
+    if (!state) {
+      introShownRef.current = false;
+      return;
+    }
+    if (state.phase !== 'playing' || introShownRef.current) return;
+    introShownRef.current = true;
+    const viewer: PlayerId | null = isAi ? 0 : net ? net.seat : null;
+    const now = performance.now();
+    const list: MapEffect[] = [];
+    let i = 0;
+    for (const [id, owner] of Object.entries(state.owners)) {
+      if (owner === null) continue;
+      if (viewer !== null && owner === viewer) continue;
+      const st = STATION_BY_ID[id];
+      const isHq = state.hq[owner] === id;
+      // 두 번의 물결로 순차 펄스 (본진은 강조)
+      list.push({
+        id: ++fxIdRef.current,
+        x: st.x,
+        y: st.y,
+        color: PLAYER_COLORS[owner],
+        big: isHq,
+        start: now + i * 90,
+      });
+      list.push({
+        id: ++fxIdRef.current,
+        x: st.x,
+        y: st.y,
+        color: PLAYER_COLORS[owner],
+        big: isHq,
+        start: now + i * 90 + 550,
+      });
+      i++;
+    }
+    if (list.length > 0) {
+      setEffects((e) => [...e, ...list]);
+      sfx.turn();
+    }
+  }, [state, isAi, net]);
+
   // e2e 테스트/디버깅용 훅 (게임 로직에는 영향 없음)
   useEffect(() => {
     (window as unknown as { __game?: GameState | null; __stations?: typeof STATION_BY_ID }).__game =
