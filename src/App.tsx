@@ -3,7 +3,9 @@ import type { Room } from 'trystero';
 import MapCanvas, { PLAYER_COLORS } from './components/MapCanvas';
 import type { MapEffect, MapHighlights } from './components/MapCanvas';
 import Hud from './components/Hud';
+import LandingScreen from './components/LandingScreen';
 import SetupScreen, { type GameConfig } from './components/SetupScreen';
+import TutorialScreen from './components/TutorialScreen';
 import {
   applyAction,
   canDraftPick,
@@ -40,6 +42,7 @@ function genRoomCode(): string {
 }
 
 export default function App() {
+  const [screen, setScreen] = useState<'landing' | 'setup' | 'tutorial'>('landing');
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [effects, setEffects] = useState<MapEffect[]>([]);
@@ -268,6 +271,7 @@ export default function App() {
     setFocus(null);
     setSelected(null);
     setBarricadeFrom(null);
+    setScreen('landing');
   }, []);
 
   // 원격 상대 턴 여부
@@ -322,22 +326,31 @@ export default function App() {
         </div>
       );
     }
+    if (screen === 'tutorial') {
+      return <TutorialScreen onExit={() => setScreen('landing')} />;
+    }
+    if (screen === 'setup') {
+      return (
+        <SetupScreen
+          onBack={() => setScreen('landing')}
+          onStart={(cfg: GameConfig) => {
+            if (cfg.opponent === 'online-host' || cfg.opponent === 'online-guest') {
+              void beginOnline(cfg);
+            } else {
+              setConfig(cfg);
+              const initial = createGame(cfg.mode, cfg.turnLimit);
+              setState(
+                cfg.draftMode === 'random'
+                  ? grantInitialHarvest(randomDraftPlan(initial).state)
+                  : initial,
+              );
+            }
+          }}
+        />
+      );
+    }
     return (
-      <SetupScreen
-        onStart={(cfg: GameConfig) => {
-          if (cfg.opponent === 'online-host' || cfg.opponent === 'online-guest') {
-            void beginOnline(cfg);
-          } else {
-            setConfig(cfg);
-            const initial = createGame(cfg.mode, cfg.turnLimit);
-            setState(
-              cfg.draftMode === 'random'
-                ? grantInitialHarvest(randomDraftPlan(initial).state)
-                : initial,
-            );
-          }
-        }}
-      />
+      <LandingScreen onPlay={() => setScreen('setup')} onTutorial={() => setScreen('tutorial')} />
     );
   }
 

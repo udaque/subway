@@ -504,6 +504,121 @@ body {
   letter-spacing: 0.03em;
 }
 
+/* ── 랜딩 ────────────────────────────────── */
+.btn-landing {
+  margin-top: 14px;
+  font-size: 17px;
+  padding: 15px;
+}
+
+.btn-start.btn-landing-sub {
+  background: #21262f;
+  color: #e8eaed;
+  border: 1.5px solid #3a414d;
+  margin-top: 10px;
+}
+
+.landing-card .title-img {
+  margin-bottom: 8px;
+}
+
+.setup-heading {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+/* ── 튜토리얼 ────────────────────────────── */
+.tut-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.tut-progress {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffd166;
+  letter-spacing: 0.04em;
+}
+
+.tut-exit {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.tut-title {
+  font-size: 19px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.tut-text {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: #b9c0cc;
+  text-align: left;
+}
+
+.tut-map {
+  width: 100%;
+  margin-top: 12px;
+  background: #12151a;
+  border: 1px solid #2c323d;
+  border-radius: 12px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tut-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.tut-ap {
+  font-size: 14px;
+  color: #cfd3da;
+}
+
+.tut-ap b {
+  color: #ffd166;
+  font-size: 17px;
+}
+
+.tut-endturn {
+  background: #ff5d5d;
+}
+
+.tut-msg {
+  margin-top: 12px;
+  padding: 10px 13px;
+  background: #262c37;
+  border: 1px solid #3a414d;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #e8eaed;
+  text-align: left;
+}
+
+.tut-clear {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: rgba(46, 230, 168, 0.08);
+  border: 1px solid rgba(46, 230, 168, 0.45);
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.tut-next {
+  margin-top: 12px;
+}
+
 .setup-sub {
   color: #8b93a1;
   font-size: 13px;

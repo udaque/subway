@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { VictoryMode } from '../game/types';
 import { RULES } from '../game/engine';
 import { DIFFICULTY_LABEL, type Difficulty } from '../game/ai';
-import titleImg from '../assets/title.webp';
 
 export type Opponent = 'ai' | 'local' | 'online-host' | 'online-guest';
 
@@ -20,9 +19,10 @@ export interface GameConfig {
 
 interface Props {
   onStart: (config: GameConfig) => void;
+  onBack: () => void;
 }
 
-export default function SetupScreen({ onStart }: Props) {
+export default function SetupScreen({ onStart, onBack }: Props) {
   const [mode, setMode] = useState<VictoryMode>('hq');
   const [turnLimit, setTurnLimit] = useState(RULES.defaultTurnLimit);
   const [opponentKind, setOpponentKind] = useState<'ai' | 'local' | 'online'>('ai');
@@ -42,7 +42,12 @@ export default function SetupScreen({ onStart }: Props) {
   return (
     <div className="overlay">
       <div className="setup-card">
-        <img className="title-img" src={titleImg} alt="이번 역은 적진입니다" />
+        <div className="tut-head">
+          <button className="btn-ghost tut-exit" onClick={onBack}>
+            ← 처음으로
+          </button>
+          <span className="setup-heading">게임 설정</span>
+        </div>
 
         <div className="section-label">상대</div>
         <div className="mode-grid mode-grid-3">
@@ -226,8 +231,6 @@ export default function SetupScreen({ onStart }: Props) {
             <li>🌊 한강을 건너는 공격은 비용이 1.5배입니다</li>
           </ul>
         </div>
-
-        <div className="setup-footer">{__APP_VERSION__} — made by Teeum Soft</div>
       </div>
     </div>
   );
