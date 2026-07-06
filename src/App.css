@@ -490,6 +490,20 @@ body {
   letter-spacing: -0.5px;
 }
 
+.title-img {
+  width: 100%;
+  border-radius: 13px;
+  display: block;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.setup-footer {
+  margin-top: 18px;
+  font-size: 11.5px;
+  color: #667080;
+  letter-spacing: 0.03em;
+}
+
 .setup-sub {
   color: #8b93a1;
   font-size: 13px;

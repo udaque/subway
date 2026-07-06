@@ -88,7 +88,7 @@ export default function Hud({
     <>
       <header className="hud">
         <div className="hud-title">
-          지하철 <span className="accent">땅따먹기</span>
+          이번 역은 <span className="accent">적진</span>입니다
         </div>
         <div className="hud-players">
           {playerLabels.slice(0, state.playerCount).map((label, p) =>

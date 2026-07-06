@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { VictoryMode } from '../game/types';
 import { RULES } from '../game/engine';
 import { DIFFICULTY_LABEL, type Difficulty } from '../game/ai';
+import titleImg from '../assets/title.webp';
 
 export type Opponent = 'ai' | 'local' | 'online-host' | 'online-guest';
 
@@ -41,10 +42,7 @@ export default function SetupScreen({ onStart }: Props) {
   return (
     <div className="overlay">
       <div className="setup-card">
-        <h1>
-          지하철 <span className="accent">땅따먹기</span>
-        </h1>
-        <p className="setup-sub">수도권 전철 전 노선 · 턴제 영토전</p>
+        <img className="title-img" src={titleImg} alt="이번 역은 적진입니다" />
 
         <div className="section-label">상대</div>
         <div className="mode-grid mode-grid-3">
@@ -228,6 +226,8 @@ export default function SetupScreen({ onStart }: Props) {
             <li>🌊 한강을 건너는 공격은 비용이 1.5배입니다</li>
           </ul>
         </div>
+
+        <div className="setup-footer">{__APP_VERSION__} — made by Teeum Soft</div>
       </div>
     </div>
   );
