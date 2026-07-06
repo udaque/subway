@@ -8,20 +8,30 @@ import LandingScreen from './components/LandingScreen';
 import SetupScreen, { type GameConfig } from './components/SetupScreen';
 import TutorialScreen from './components/TutorialScreen';
 import {
+  activeEvent,
   applyAction,
   canDraftPick,
   capturableStations,
   captureInfo,
   createGame,
+  EVENT_LABEL,
+  eventDescription,
   grantInitialHarvest,
   ownedStations,
   randomDraftPlan,
 } from './game/engine';
-import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
+import {
+  aiDraftAction,
+  aiNextAction,
+  DIFFICULTY_LABEL,
+  INSANE_INCOME_MULT,
+  PERSONA_LABEL,
+} from './game/ai';
 import { recordModeWin, unlock, type AchievementDef } from './game/achievements';
 import { captureAnnouncement, endAnnouncement, startAnnouncement } from './game/announcer';
 import { isMuted, setMuted, sfx } from './game/sound';
-import { LINE_SEQUENCES, STATIONS, STATION_BY_ID } from './data/stations';
+import { LINE_NAMES, LINE_SEQUENCES, STATIONS, STATION_BY_ID } from './data/stations';
+import type { Owner } from './game/types';
 import type { Action, GameState, PlayerId, VictoryMode } from './game/types';
 import './App.css';
 
@@ -67,6 +77,10 @@ export default function App() {
   // 챌린지 달성 토스트 (화면 상단) + 한 턴 점령 수 카운터
   const [achToast, setAchToast] = useState<{ id: number; text: string } | null>(null);
   const captureStreakRef = useRef(0);
+  // 라운드 이벤트 모달: 확인한 이벤트 키 (`round:kind:line`)
+  const [eventSeen, setEventSeen] = useState<string | null>(null);
+  // 리플레이 타임랩스 (게임 종료 후): history 재생 위치
+  const [replay, setReplay] = useState<{ idx: number } | null>(null);
 
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
@@ -100,6 +114,30 @@ export default function App() {
     const t = setTimeout(() => setAchToast((a) => (a?.id === achToast.id ? null : a)), 4200);
     return () => clearTimeout(t);
   }, [achToast]);
+
+  // 리플레이 자동 재생
+  useEffect(() => {
+    if (!replay || !state || replay.idx >= state.history.length) return;
+    const t = setTimeout(() => setReplay((r) => (r ? { idx: r.idx + 1 } : r)), 90);
+    return () => clearTimeout(t);
+  }, [replay, state]);
+
+  // 리플레이 표시용 상태: history를 idx까지 적용한 소유 지도
+  const replayState = useMemo(() => {
+    if (!replay || !state) return null;
+    const owners: Record<string, Owner> = {};
+    for (let i = 0; i < replay.idx && i < state.history.length; i++) {
+      const h = state.history[i];
+      owners[h.s] = h.p;
+    }
+    return {
+      ...state,
+      owners,
+      fortifications: {},
+      barricades: {},
+      phase: 'playing' as const,
+    };
+  }, [replay, state]);
 
   // ── 진행 상황 저장/복원 ─────────────────────────────────────
   // 새로고침해도 이어서 플레이할 수 있게 localStorage에 저장한다.
@@ -362,7 +400,7 @@ export default function App() {
       let action =
         s.phase === 'draft'
           ? aiDraftAction(s, config.difficulty)
-          : aiNextAction(s, config.difficulty);
+          : aiNextAction(s, config.difficulty, config.aiPersona ?? 'balanced');
       // 안전망: AI가 무효 액션(상태 불변)을 내면 루프가 영원히 멈추므로
       // 턴 종료(드래프트는 선택 완료)로 강제 진행한다
       if (applyAction(s, action) === s) {
@@ -540,6 +578,8 @@ export default function App() {
     setBarricadeFrom(null);
     setAnnounce(null);
     setAchToast(null);
+    setEventSeen(null);
+    setReplay(null);
     captureStreakRef.current = 0;
     setScreen('landing');
   }, []);
@@ -611,7 +651,14 @@ export default function App() {
               void beginOnline(cfg);
             } else {
               setConfig(cfg);
-              const initial = createGame(cfg.mode, cfg.turnLimit);
+              const initial = createGame(
+                cfg.mode,
+                cfg.turnLimit,
+                2,
+                cfg.opponent === 'ai' && cfg.difficulty === 'insane'
+                  ? [1, INSANE_INCOME_MULT] // 매우 어려움: AI 수입·상한 치트
+                  : undefined,
+              );
               setState(
                 cfg.draftMode === 'random'
                   ? grantInitialHarvest(randomDraftPlan(initial).state)
@@ -632,16 +679,28 @@ export default function App() {
   }
 
   const playerLabels: string[] = isAi
-    ? ['나', `AI·${DIFFICULTY_LABEL[config.difficulty]}`]
+    ? [
+        '나',
+        `AI·${DIFFICULTY_LABEL[config.difficulty]}${
+          config.aiPersona && config.aiPersona !== 'balanced'
+            ? `·${PERSONA_LABEL[config.aiPersona]}`
+            : ''
+        }`,
+      ]
     : net
       ? Array.from({ length: state.playerCount }, (_, i) => (i === net.seat ? '나' : `P${i + 1}`))
       : ['P1', 'P2'];
+
+  const activeEv = activeEvent(state);
+  const eventKey = activeEv ? `${activeEv.round}:${activeEv.kind}:${activeEv.line}` : null;
 
   const notice = barricadeFrom
     ? `🚧 ${barricadeFrom}과 이어진 역을 선택해 바리케이드를 설치하세요 (배경을 누르면 취소)`
     : net?.status === 'peer-left'
       ? '🔌 상대와 연결이 끊겼어요 — 재접속(새로고침)을 기다리는 중입니다. 진행 상황은 안전합니다'
-      : null;
+      : activeEv
+        ? `📢 ${activeEv.line ? `${LINE_NAMES[activeEv.line]} ` : ''}${EVENT_LABEL[activeEv.kind]} — 이번 라운드 적용 중`
+        : null;
 
   const tryBarricade = (from: string, to: string) => {
     dispatch({ type: 'barricade', a: from, b: to });
@@ -705,13 +764,13 @@ export default function App() {
         onRestart={restart}
       />
       <MapCanvas
-        state={state}
-        highlights={highlights}
-        effects={effects}
-        focus={focus}
-        selected={selected}
+        state={replayState ?? state}
+        highlights={replay ? { capturable: new Map(), pickable: null } : highlights}
+        effects={replay ? [] : effects}
+        focus={replay ? null : focus}
+        selected={replay ? null : selected}
         barricadeFrom={barricadeFrom}
-        locked={lockReason !== null}
+        locked={replay !== null || lockReason !== null}
         onSelect={onSelect}
         onConfirm={onConfirm}
         onFortify={(id) => {
@@ -737,7 +796,33 @@ export default function App() {
           🏆 챌린지 달성! {achToast.text}
         </div>
       )}
-      {state.phase === 'over' && (
+      {activeEv && eventKey !== eventSeen && state.phase === 'playing' && !replay && (
+        <div className="overlay">
+          <div className="setup-card event-card">
+            <div className="event-kicker">📢 안내 말씀 드립니다</div>
+            <h1>
+              {activeEv.line ? `${LINE_NAMES[activeEv.line]} ` : ''}
+              <span className="accent">{EVENT_LABEL[activeEv.kind]}</span>
+            </h1>
+            <p className="setup-sub">{eventDescription(activeEv)}</p>
+            <button className="btn-start" onClick={() => setEventSeen(eventKey)}>
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+      {replay && (
+        <div className="replay-bar">
+          📽 리플레이 {Math.min(replay.idx, state.history.length)}/{state.history.length}
+          {replay.idx > 0 && replay.idx <= state.history.length
+            ? ` · ${state.history[replay.idx - 1].r}R`
+            : ''}
+          <button className="btn-ghost replay-close" onClick={() => setReplay(null)}>
+            {replay.idx >= state.history.length ? '닫기' : '건너뛰기'}
+          </button>
+        </div>
+      )}
+      {state.phase === 'over' && !replay && (
         <div className="overlay">
           <div className="setup-card result-card">
             <h1>
@@ -756,6 +841,14 @@ export default function App() {
                 .join(' · ')}{' '}
               · {state.round - 1}라운드 진행
             </p>
+            {state.history.length > 0 && (
+              <button
+                className="btn-start btn-landing-sub replay-btn"
+                onClick={() => setReplay({ idx: 0 })}
+              >
+                📽 리플레이 보기
+              </button>
+            )}
             <button className="btn-start" onClick={restart}>
               새 게임
             </button>

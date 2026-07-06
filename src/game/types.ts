@@ -36,6 +36,24 @@ export type VictoryMode = 'hq' | 'turnLimit' | 'annihilation';
 
 export type Phase = 'draft' | 'playing' | 'over';
 
+/** 라운드 이벤트 — 해당 round 동안만 유효 */
+export interface GameEvent {
+  kind: 'strike' | 'express' | 'inspection';
+  /** 대상 노선 (inspection은 전체 → null) */
+  line: LineId | null;
+  round: number;
+}
+
+/** 리플레이용 소유권 변경 기록 */
+export interface OwnershipChange {
+  /** 라운드 */
+  r: number;
+  /** 역 id */
+  s: string;
+  /** 새 주인 (탈락 중립화는 null) */
+  p: PlayerId | null;
+}
+
 export interface GameState {
   mode: VictoryMode;
   /** turnLimit 모드에서 총 라운드 수 (전원이 한 번씩 = 1라운드) */
@@ -57,6 +75,14 @@ export interface GameState {
   fortifications: Record<string, number>;
   /** 바리케이드 (정렬된 'a|b' 엣지 키 → 설치자). 뚫리면 소멸 */
   barricades: Record<string, PlayerId>;
+  /** 현재 플레이어가 이번 턴에 점령한 횟수 (연속 점령 체증) */
+  capturesThisTurn: number;
+  /** 진행 중인 라운드 이벤트 (round가 일치할 때만 효과) */
+  event: GameEvent | null;
+  /** 소유권 변경 기록 (리플레이 타임랩스용) */
+  history: OwnershipChange[];
+  /** 플레이어별 수입·AP상한 배율 (AI 치트용, 생략 시 전원 1) */
+  incomeMultiplier?: number[];
   winner: PlayerId | 'draw' | null;
   log: string[];
 }

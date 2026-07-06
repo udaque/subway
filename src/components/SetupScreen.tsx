@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { VictoryMode } from '../game/types';
 import { RULES } from '../game/engine';
-import { DIFFICULTY_LABEL, type Difficulty } from '../game/ai';
+import { DIFFICULTY_LABEL, PERSONA_LABEL, type AiPersona, type Difficulty } from '../game/ai';
 
 export type Opponent = 'ai' | 'local' | 'online-host' | 'online-guest';
 
@@ -10,6 +10,8 @@ export interface GameConfig {
   turnLimit: number;
   opponent: Opponent;
   difficulty: Difficulty;
+  /** AI 성격 (어려움 이상에서 뚜렷하게 반영) */
+  aiPersona: AiPersona;
   /** 온라인 방 인원 (2~4, 방장이 결정) */
   playerCount: number;
   /** 시작 배치: 직접 드래프트 or 10AP 랜덤 풀배정 */
@@ -30,6 +32,7 @@ export default function SetupScreen({ onStart, onBack }: Props) {
   const [joinCode, setJoinCode] = useState('');
   const [playerCount, setPlayerCount] = useState(2);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const [aiPersona, setAiPersona] = useState<AiPersona>('balanced');
   const [draftMode, setDraftMode] = useState<'manual' | 'random'>('random');
 
   const opponent: Opponent =
@@ -75,18 +78,37 @@ export default function SetupScreen({ onStart, onBack }: Props) {
         </div>
 
         {opponentKind === 'ai' && (
-          <div className="limit-row">
-            <span>난이도</span>
-            {(['easy', 'normal', 'hard'] as const).map((d) => (
-              <button
-                key={d}
-                className={`chip ${difficulty === d ? 'selected' : ''}`}
-                onClick={() => setDifficulty(d)}
-              >
-                {DIFFICULTY_LABEL[d]}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="limit-row">
+              <span>난이도</span>
+              {(['easy', 'normal', 'hard', 'insane'] as const).map((d) => (
+                <button
+                  key={d}
+                  className={`chip ${difficulty === d ? 'selected' : ''}`}
+                  onClick={() => setDifficulty(d)}
+                >
+                  {DIFFICULTY_LABEL[d]}
+                </button>
+              ))}
+            </div>
+            {difficulty === 'insane' && (
+              <div className="setup-note">
+                ⚠ 매우 어려움: AI의 수입과 AP 상한이 1.5배입니다. 건투를 빕니다.
+              </div>
+            )}
+            <div className="limit-row">
+              <span>AI 성격</span>
+              {(['balanced', 'aggressive', 'defensive', 'expansion'] as const).map((p) => (
+                <button
+                  key={p}
+                  className={`chip ${aiPersona === p ? 'selected' : ''}`}
+                  onClick={() => setAiPersona(p)}
+                >
+                  {PERSONA_LABEL[p]}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         {opponentKind === 'online' && (
@@ -206,6 +228,7 @@ export default function SetupScreen({ onStart, onBack }: Props) {
               turnLimit,
               opponent,
               difficulty,
+              aiPersona,
               playerCount: opponent === 'online-host' ? playerCount : 2,
               draftMode,
               joinCode: joinCode.trim(),

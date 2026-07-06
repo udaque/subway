@@ -942,6 +942,12 @@ export default function MapCanvas({
             <span className="legend-river">✕</span> 구간 위 ✕ = 바리케이드: 그 구간 공격 +{RULES.barricadeSurcharge}AP · 뚫리면 소멸
           </div>
           <div className="legend-row">
+            <span className="legend-river">🚄</span> 급행 점프: 9호선 급행 정차역끼리는 인접 취급 — 사이 역을 건너뛰고 점령 가능
+          </div>
+          <div className="legend-row">
+            <span className="legend-river">⏱</span> 연속 점령 체증: 한 턴에 2번째 점령부터 비용 +{RULES.captureEscalation}씩 증가 (포위 무료엔 미적용)
+          </div>
+          <div className="legend-row">
             <span className="legend-river">📉</span> 수확 체감: 실수령 = ⌈수입^{RULES.incomeExponent}⌉
           </div>
         </div>
@@ -991,9 +997,12 @@ export default function MapCanvas({
                   ` + 방어 ${defenseOf(state, hoveredStation.id)} (${DEPTH_LABEL[hoveredStation.depth]}${isHqStation(state, hoveredStation.id) ? '·본진' : ''})`}
                 {hoveredCap.enemyOwned && ` + 적 점령지 ${RULES.enemyOwnedSurcharge}`}
                 {hoveredCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 한강 도하`}
+                {hoveredCap.viaExpress && ' · 🚄급행 점프'}
                 {hoveredCap.enemyOwned &&
                   hoveredCap.supporters >= RULES.surroundHalfAt &&
                   ` → 포위 ${hoveredCap.supporters}방향 ${hoveredCap.supporters >= RULES.surroundFreeAt ? '무료' : '½ (내림)'}`}
+                {hoveredCap.escalation > 0 && ` + 연속 점령 ${hoveredCap.escalation}`}
+                {hoveredCap.eventDiscount > 0 && ` − 급행 이벤트 ${hoveredCap.eventDiscount}`}
               </div>
             </div>
           )}
@@ -1058,9 +1067,12 @@ export default function MapCanvas({
                   ` + 방어 ${defenseOf(state, selStation.id)}`}
                 {selCap.enemyOwned && ` + 적 ${RULES.enemyOwnedSurcharge}`}
                 {selCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 도하`}
+                {selCap.viaExpress && ' · 🚄급행 점프'}
                 {selCap.enemyOwned &&
                   selCap.supporters >= RULES.surroundHalfAt &&
                   ` → 포위 ${selCap.supporters >= RULES.surroundFreeAt ? '무료' : '½'}`}
+                {selCap.escalation > 0 && ` + 연속 점령 ${selCap.escalation}`}
+                {selCap.eventDiscount > 0 && ` − 급행 이벤트 ${selCap.eventDiscount}`}
               </div>
               <button
                 className="btn-confirm"

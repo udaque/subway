@@ -1,8 +1,10 @@
-import { STATION_BY_ID, STATIONS } from '../data/stations';
-import { edgesBetween, graphDistance, neighbors } from './graph';
+import { LINE_NAMES, STATION_BY_ID, STATIONS } from '../data/stations';
+import { edgesBetween, EXPRESS_ADJ, graphDistance, neighbors } from './graph';
 import type {
   Action,
+  GameEvent,
   GameState,
+  LineId,
   Owner,
   PlayerId,
   Station,
@@ -38,7 +40,15 @@ export const RULES = {
   draftDisconnectedSurcharge: 1,
   /** AP 보유 상한: base + perStation × 점령 역 수 */
   apCapBase: 10,
-  apCapPerStation: 2,
+  apCapPerStation: 1,
+  /** 연속 점령 체증: 한 턴 안에서 n번째 점령마다 비용 +1 (무료 점령엔 미적용) */
+  captureEscalation: 1,
+  /** 라운드 이벤트 주기 (이 배수 라운드마다 발생) */
+  eventEveryRounds: 3,
+  /** 급행 운행 이벤트: 대상 노선 점령 비용 할인 */
+  expressEventDiscount: 1,
+  /** 시설 점검 이벤트: 전 역 방어 가산 */
+  inspectionDefenseBonus: 1,
   /** 두 본진 사이 최소 거리 (엣지 수) */
   minHqDistance: 8,
   /** 턴 리밋 모드 기본 라운드 수 */
@@ -72,13 +82,20 @@ export function stationDefense(st: Station, isHq: boolean): number {
   return RULES.defenseByDepth[st.depth] + (isHq ? RULES.hqDefenseBonus : 0);
 }
 
-/** 요새화까지 반영한 실제 방어력 */
+/** 현재 라운드에 효과가 살아 있는 이벤트 */
+export function activeEvent(state: GameState): GameEvent | null {
+  return state.event && state.event.round === state.round ? state.event : null;
+}
+
+/** 요새화·이벤트까지 반영한 실제 방어력 */
 export function defenseOf(state: GameState, id: string): number {
   const st = STATION_BY_ID[id];
   if (!st) return 0;
+  const ev = activeEvent(state);
   return (
     stationDefense(st, isHqStation(state, id)) +
-    (state.fortifications[id] ?? 0) * RULES.fortifyDefensePerLevel
+    (state.fortifications[id] ?? 0) * RULES.fortifyDefensePerLevel +
+    (ev?.kind === 'inspection' ? RULES.inspectionDefenseBonus : 0)
   );
 }
 
@@ -91,20 +108,36 @@ export function ownedStations(state: GameState, player: PlayerId): string[] {
 }
 
 export function playerIncome(state: GameState, player: PlayerId): number {
-  return ownedStations(state, player).reduce(
-    (sum, id) => sum + stationProduction(STATION_BY_ID[id], isHqStation(state, id)),
-    0,
-  );
+  const ev = activeEvent(state);
+  return ownedStations(state, player).reduce((sum, id) => {
+    const st = STATION_BY_ID[id];
+    let prod = stationProduction(st, isHqStation(state, id));
+    // 파업: 해당 노선 역들의 생산 절반 (내림)
+    if (ev?.kind === 'strike' && ev.line && st.lines.includes(ev.line)) {
+      prod = Math.floor(prod / 2);
+    }
+    return sum + prod;
+  }, 0);
+}
+
+function multiplierOf(state: GameState, player: PlayerId): number {
+  return state.incomeMultiplier?.[player] ?? 1;
 }
 
 /** 수확 체감을 적용한 실수령 수입 */
 export function effectiveIncome(state: GameState, player: PlayerId): number {
   const raw = playerIncome(state, player);
-  return raw <= 0 ? 0 : Math.ceil(raw ** RULES.incomeExponent);
+  if (raw <= 0) return 0;
+  return Math.ceil(raw ** RULES.incomeExponent * multiplierOf(state, player));
 }
 
 export function apCap(state: GameState, player: PlayerId): number {
-  return RULES.apCapBase + RULES.apCapPerStation * ownedStations(state, player).length;
+  return (
+    RULES.apCapBase +
+    Math.ceil(
+      RULES.apCapPerStation * ownedStations(state, player).length * multiplierOf(state, player),
+    )
+  );
 }
 
 // ── 점령 비용/가능 판정 ─────────────────────────────────────
@@ -113,12 +146,18 @@ export interface CaptureInfo {
   viaRiver: boolean;
   /** 상대 바리케이드를 뚫고 가는 경로인지 (+가산, 점령 시 소멸) */
   viaBarricade: boolean;
+  /** 급행 점프 경로인지 (사이 역을 건너뜀, 바리케이드 무시) */
+  viaExpress: boolean;
   /** 최소 비용 경로의 출발 아군 역 */
   via: string;
   fromOwned: boolean;
   enemyOwned: boolean;
-  /** 목표 역과 인접한 내 역 수 (포위 판정) */
+  /** 목표 역과 물리적으로 인접한 내 역 수 (포위 판정 — 급행 제외) */
   supporters: number;
+  /** 연속 점령 체증 가산 (이번 턴 n번째 점령) */
+  escalation: number;
+  /** 급행 운행 이벤트 할인 */
+  eventDiscount: number;
 }
 
 /**
@@ -140,7 +179,13 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
     defenseOf(state, target) +
     (enemyOwned ? RULES.enemyOwnedSurcharge : 0);
 
-  let best: { cost: number; viaRiver: boolean; viaBarricade: boolean; via: string } | null = null;
+  let best: {
+    cost: number;
+    viaRiver: boolean;
+    viaBarricade: boolean;
+    viaExpress: boolean;
+    via: string;
+  } | null = null;
   let supporters = 0;
   for (const n of neighbors(target)) {
     if (state.owners[n] !== player) continue;
@@ -150,7 +195,16 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
     const barOwner = state.barricades[edgeKey(n, target)];
     const viaBarricade = barOwner !== undefined && barOwner !== player;
     if (viaBarricade) cost += RULES.barricadeSurcharge;
-    if (best === null || cost < best.cost) best = { cost, viaRiver, viaBarricade, via: n };
+    if (best === null || cost < best.cost)
+      best = { cost, viaRiver, viaBarricade, viaExpress: false, via: n };
+  }
+  // 급행 점프: 연속 급행 정차역끼리는 인접 취급 (무정차 통과 — 바리케이드 무시).
+  // 포위 supporters에는 세지 않는다 (물리적 포위가 아니므로).
+  for (const ex of EXPRESS_ADJ[target] ?? []) {
+    if (state.owners[ex.to] !== player) continue;
+    const cost = ex.river ? Math.ceil(base * RULES.riverCostMultiplier) : base;
+    if (best === null || cost < best.cost)
+      best = { cost, viaRiver: ex.river, viaBarricade: false, viaExpress: true, via: ex.to };
   }
   if (best === null) return null;
 
@@ -159,14 +213,27 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
     if (supporters >= RULES.surroundFreeAt) cost = 0;
     else if (supporters >= RULES.surroundHalfAt) cost = Math.floor(cost / 2);
   }
+  // 연속 점령 체증 — 무료(포위) 점령에는 붙지 않는다
+  const escalation = cost > 0 ? state.capturesThisTurn * RULES.captureEscalation : 0;
+  cost += escalation;
+  // 급행 운행 이벤트: 대상 노선 점령 할인 (최소 1AP)
+  const ev = activeEvent(state);
+  let eventDiscount = 0;
+  if (cost > 0 && ev?.kind === 'express' && ev.line && st.lines.includes(ev.line)) {
+    eventDiscount = Math.min(RULES.expressEventDiscount, cost - 1);
+    cost -= eventDiscount;
+  }
   return {
     cost,
     viaRiver: best.viaRiver,
     viaBarricade: best.viaBarricade,
+    viaExpress: best.viaExpress,
     via: best.via,
     fromOwned: true,
     enemyOwned,
     supporters,
+    escalation,
+    eventDiscount,
   };
 }
 
@@ -175,13 +242,15 @@ export function capturableStations(state: GameState): Map<string, CaptureInfo> {
   const result = new Map<string, CaptureInfo>();
   if (state.phase !== 'playing') return result;
   const seen = new Set<string>();
+  const consider = (n: string) => {
+    if (seen.has(n)) return;
+    seen.add(n);
+    const info = captureInfo(state, n);
+    if (info) result.set(n, info);
+  };
   for (const id of ownedStations(state, state.current)) {
-    for (const n of neighbors(id)) {
-      if (seen.has(n)) continue;
-      seen.add(n);
-      const info = captureInfo(state, n);
-      if (info) result.set(n, info);
-    }
+    for (const n of neighbors(id)) consider(n);
+    for (const ex of EXPRESS_ADJ[id] ?? []) consider(ex.to);
   }
   return result;
 }
@@ -239,6 +308,7 @@ export function createGame(
   mode: VictoryMode,
   turnLimit = RULES.defaultTurnLimit,
   playerCount = 2,
+  incomeMultiplier?: number[],
 ): GameState {
   const n = Math.max(2, Math.min(4, playerCount));
   return {
@@ -255,9 +325,61 @@ export function createGame(
     eliminated: Array.from({ length: n }, () => false),
     fortifications: {},
     barricades: {},
+    capturesThisTurn: 0,
+    event: null,
+    history: [],
+    incomeMultiplier,
     winner: null,
     log: [],
   };
+}
+
+// ── 라운드 이벤트 ───────────────────────────────────────────
+/** FNV-1a — 이벤트 추첨용 결정적 해시 (온라인 전원 동일 결과) */
+function fnv1a(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+export const EVENT_LABEL: Record<GameEvent['kind'], string> = {
+  strike: '파업',
+  express: '급행 운행',
+  inspection: '시설 점검',
+};
+
+export function eventDescription(ev: GameEvent): string {
+  const line = ev.line ? LINE_NAMES[ev.line] : '';
+  switch (ev.kind) {
+    case 'strike':
+      return `${line} 노조가 파업에 들어갔습니다. 이번 라운드 동안 ${line} 역들의 생산이 절반이 됩니다.`;
+    case 'express':
+      return `${line}에 급행이 증편됐습니다. 이번 라운드 동안 ${line} 역 점령 비용 -${RULES.expressEventDiscount}AP.`;
+    case 'inspection':
+      return `전 역사 안전 시설 점검 중입니다. 이번 라운드 동안 모든 역의 방어 +${RULES.inspectionDefenseBonus}.`;
+  }
+}
+
+/**
+ * 해당 라운드의 이벤트 추첨. 상태의 공유 값만 사용하는 순수 함수라
+ * 온라인에서도 전원이 같은 이벤트를 얻는다.
+ */
+function rollEvent(state: GameState, round: number): GameEvent | null {
+  if (round < RULES.eventEveryRounds || round % RULES.eventEveryRounds !== 0) return null;
+  const h = fnv1a(`${state.mode}|${state.playerCount}|${state.hq.join(',')}|${round}`);
+  const kind = (['strike', 'express', 'inspection'] as const)[h % 3];
+  if (kind === 'inspection') return { kind, line: null, round };
+  // 대상 노선: 누군가의 역이 있는 노선 중에서 (없으면 이벤트 생략)
+  const ownedLines = new Set<LineId>();
+  for (const s of STATIONS) {
+    if (state.owners[s.id] != null) for (const l of s.lines) ownedLines.add(l);
+  }
+  const lines = [...ownedLines].sort();
+  if (lines.length === 0) return null;
+  return { kind, line: lines[Math.floor(h / 3) % lines.length], round };
 }
 
 function countStations(state: GameState, player: PlayerId): number {
@@ -297,8 +419,12 @@ function eliminate(
   transferTo: PlayerId | null = null,
 ): GameState {
   const owners = { ...state.owners };
+  const history = [...state.history];
   for (const id of Object.keys(owners)) {
-    if (owners[id] === player) owners[id] = transferTo;
+    if (owners[id] === player) {
+      owners[id] = transferTo;
+      history.push({ r: state.round, s: id, p: transferTo });
+    }
   }
   const eliminated = [...state.eliminated];
   eliminated[player] = true;
@@ -306,6 +432,7 @@ function eliminate(
     ...state,
     owners,
     eliminated,
+    history,
     log: [
       ...state.log,
       `P${player + 1} 탈락 — ${reason}${transferTo !== null ? ` (영토는 P${transferTo + 1}에게 흡수)` : ''}`,
@@ -387,6 +514,7 @@ export function applyAction(state: GameState, action: Action): GameState {
         ap,
         hq,
         current: next,
+        history: [...state.history, { r: state.round, s: action.station, p: player }],
         log: [
           ...state.log,
           `P${player + 1} ${info.first ? '본진' : '시작 역'}: ${action.station} (-${info.cost}AP)`,
@@ -435,9 +563,11 @@ export function applyAction(state: GameState, action: Action): GameState {
         owners,
         fortifications,
         barricades,
+        capturesThisTurn: state.capturesThisTurn + 1,
+        history: [...state.history, { r: state.round, s: action.station, p: player }],
         log: [
           ...state.log,
-          `P${player + 1} ${info.enemyOwned ? '탈환' : '점령'}: ${action.station} (-${info.cost}AP${info.viaRiver ? ', 도하' : ''}${info.viaBarricade ? ', 바리케이드 돌파' : ''})`,
+          `P${player + 1} ${info.enemyOwned ? '탈환' : '점령'}: ${action.station} (-${info.cost}AP${info.viaRiver ? ', 도하' : ''}${info.viaExpress ? ', 급행 점프' : ''}${info.viaBarricade ? ', 바리케이드 돌파' : ''}${info.escalation > 0 ? `, 연속 +${info.escalation}` : ''})`,
         ],
       };
 
@@ -524,12 +654,22 @@ export function applyAction(state: GameState, action: Action): GameState {
       // 인덱스가 감기면(순환 완료) 라운드 증가
       const nextRound = np <= player ? state.round + 1 : state.round;
 
+      // 라운드가 바뀌면 이벤트 추첨 (결정적 — 온라인 전원 동일)
+      const event =
+        nextRound > state.round ? rollEvent(state, nextRound) : state.event;
+      const eventLog =
+        event && event.round === nextRound && nextRound > state.round
+          ? [`📢 이벤트 — ${event.line ? `${LINE_NAMES[event.line]} ` : ''}${EVENT_LABEL[event.kind]}`]
+          : [];
+
       const next: GameState = {
         ...state,
         ap,
         current: np,
         round: nextRound,
-        log: [...state.log, `P${player + 1} 턴 종료 (+${income}AP)`],
+        capturesThisTurn: 0,
+        event,
+        log: [...state.log, `P${player + 1} 턴 종료 (+${income}AP)`, ...eventLog],
       };
 
       if (state.mode === 'turnLimit' && nextRound > state.turnLimit) {

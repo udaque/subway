@@ -11,12 +11,36 @@ import {
 import { graphDistance, neighbors } from './graph';
 import type { Action, GameState, Station } from './types';
 
-export type Difficulty = 'easy' | 'normal' | 'hard';
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'insane';
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
   easy: '쉬움',
   normal: '보통',
   hard: '어려움',
+  insane: '매우 어려움',
+};
+
+/** 매우 어려움: AI 수입·AP 상한에 곱해지는 치트 배율 */
+export const INSANE_INCOME_MULT = 1.5;
+
+export type AiPersona = 'balanced' | 'aggressive' | 'defensive' | 'expansion';
+
+export const PERSONA_LABEL: Record<AiPersona, string> = {
+  balanced: '표준',
+  aggressive: '공격형',
+  defensive: '수비형',
+  expansion: '확장형',
+};
+
+/** 성격별 평가 가중치 (어려움/매우 어려움에서 적용) */
+const PERSONA_WEIGHTS: Record<
+  AiPersona,
+  { econ: number; cost: number; enemy: number; hqPressure: number; setup: number; defense: number }
+> = {
+  balanced: { econ: 1.0, cost: 0.55, enemy: 1.0, hqPressure: 0.35, setup: 0.5, defense: 0.4 },
+  aggressive: { econ: 0.7, cost: 0.45, enemy: 1.8, hqPressure: 0.6, setup: 0.6, defense: 0.2 },
+  defensive: { econ: 1.0, cost: 0.6, enemy: 0.8, hqPressure: 0.25, setup: 0.4, defense: 0.9 },
+  expansion: { econ: 1.5, cost: 0.7, enemy: 0.5, hqPressure: 0.15, setup: 0.4, defense: 0.3 },
 };
 
 /** AI는 항상 P2(index 1)를 담당한다. */
@@ -56,23 +80,24 @@ function pickDraftHq(state: GameState, difficulty: Difficulty): string {
   if (candidates.length === 0) return STATIONS[0].id;
 
   if (difficulty === 'easy') return pick(candidates).id;
+  const smart = difficulty === 'hard' || difficulty === 'insane';
 
   const enemyHq = state.hq[0];
   let best = candidates[0];
   let bestScore = -Infinity;
   for (const c of candidates) {
-    let score = areaValue(c, difficulty === 'hard' ? 3 : 2);
+    let score = areaValue(c, smart ? 3 : 2);
     // 심층/지하 본진 선호 (방어 유리), 환승 본진은 선택 비용이 비싼 것 감안
     if (c.depth === 'deep') score += 2;
     else if (c.depth === 'underground') score += 1;
     score -= (c.lines.length - 1) * 0.5;
-    if (difficulty === 'hard' && enemyHq) {
+    if (smart && enemyHq) {
       // 너무 붙지도, 맵 끝에 고립되지도 않게
       const d = graphDistance(c.id, enemyHq);
       score += Math.min(d, 10) * 0.4 - Math.max(0, d - 14) * 0.3;
     }
     // 약간의 무작위성으로 매판 다른 그림
-    score += Math.random() * (difficulty === 'hard' ? 0.5 : 2);
+    score += Math.random() * (smart ? 0.5 : 2);
     if (score > bestScore) {
       bestScore = score;
       best = c;
@@ -103,7 +128,7 @@ export function aiDraftAction(state: GameState, difficulty: Difficulty): Action 
     const info = draftInfo(state, s.id);
     if (!info || info.cost > ap) continue;
     let score = stationProduction(s, false) / info.cost;
-    if (difficulty === 'hard') {
+    if (difficulty === 'hard' || difficulty === 'insane') {
       score += (s.lines.length - 1) * 0.15 + (info.disconnected ? -0.1 : 0.25);
       // 본진에서 너무 먼 고립 영토는 지키기 어렵다
       score -= Math.min(graphDistance(hq, s.id), 12) * 0.05;
@@ -122,7 +147,11 @@ export function aiDraftAction(state: GameState, difficulty: Difficulty): Action 
  * AI의 다음 행동 하나를 결정한다.
  * 반환되는 capture는 항상 지불 가능함이 보장된다 (불가능하면 endTurn).
  */
-export function aiNextAction(state: GameState, difficulty: Difficulty): Action {
+export function aiNextAction(
+  state: GameState,
+  difficulty: Difficulty,
+  persona: AiPersona = 'balanced',
+): Action {
   if (state.phase !== 'playing' || state.current !== AI) return { type: 'endTurn' };
 
   const ap = state.ap[AI];
@@ -138,7 +167,9 @@ export function aiNextAction(state: GameState, difficulty: Difficulty): Action {
     case 'normal':
       return aiNormal(options);
     case 'hard':
-      return aiHard(state, options, ap);
+      return aiHard(state, options, ap, persona);
+    case 'insane':
+      return aiInsane(state, options, ap, persona);
   }
 }
 
@@ -171,7 +202,9 @@ function aiHard(
   state: GameState,
   options: Array<{ id: string; info: CaptureInfo }>,
   ap: number,
+  persona: AiPersona = 'balanced',
 ): Action {
+  const w = PERSONA_WEIGHTS[persona];
   const enemyHq = state.hq[0]!;
 
   // 1) 상대 본진을 지금 점령할 수 있으면 즉시 승리 (전멸전 제외)
@@ -187,14 +220,14 @@ function aiHard(
   for (const { id, info } of options) {
     const st = STATION_BY_ID[id];
     const production = stationProduction(st, false);
-    let score = production * 1.0 - info.cost * 0.55;
+    let score = production * w.econ - info.cost * w.cost;
 
     // 환승 허브는 확장 선택지를 늘린다
     score += (st.lines.length - 1) * 0.8 + (neighbors(id).length - 2) * 0.25;
     // 점령 후 지키기 좋은 역
-    if (st.depth === 'deep') score += 0.4;
+    if (st.depth === 'deep') score += w.defense;
     // 상대 땅 빼앗기 = 상대 생산력 감소이기도 함 (전멸전에선 그게 곧 승리 조건)
-    if (info.enemyOwned) score += state.mode === 'annihilation' ? 1.8 : 1.0;
+    if (info.enemyOwned) score += (state.mode === 'annihilation' ? 1.8 : 1.0) * w.enemy;
 
     if (lateGame) {
       // 정복전 후반: 역 개수가 곧 점수 → 싸게 많이
@@ -202,7 +235,7 @@ function aiHard(
     } else {
       // 상대 본진 방향으로 전선을 민다
       const d = graphDistance(id, enemyHq);
-      score += Math.max(0, 9 - d) * 0.35;
+      score += Math.max(0, 9 - d) * w.hqPressure;
     }
 
     score += Math.random() * 0.1;
@@ -228,4 +261,98 @@ function aiHard(
   }
 
   return { type: 'capture', station: best.id };
+}
+
+/**
+ * 매우 어려움: 어려움의 평가에 더해
+ * - 포위 셋업 인식 (다음 턴 절반/무료 점령을 만드는 수를 높게 평가)
+ * - 상대 수입 타격을 점수에 직접 반영
+ * - 전선 요새화·본진 길목 바리케이드 등 방어 행동
+ * 수입·AP 상한 치트(×1.5)는 게임 생성 시 incomeMultiplier로 적용된다.
+ */
+function aiInsane(
+  state: GameState,
+  options: Array<{ id: string; info: CaptureInfo }>,
+  ap: number,
+  persona: AiPersona,
+): Action {
+  const w = PERSONA_WEIGHTS[persona];
+  const enemyHq = state.hq[0]!;
+
+  // 1) 즉시 승리 수
+  if (state.mode !== 'annihilation') {
+    const kill = options.find((o) => o.id === enemyHq);
+    if (kill) return { type: 'capture', station: kill.id };
+  }
+
+  const lateGame = state.mode === 'turnLimit' && state.round > state.turnLimit * 0.6;
+
+  let best: { id: string; score: number } | null = null;
+  for (const { id, info } of options) {
+    const st = STATION_BY_ID[id];
+    const production = stationProduction(st, false);
+    let score = production * w.econ - info.cost * w.cost;
+    score += (st.lines.length - 1) * 0.8 + (neighbors(id).length - 2) * 0.25;
+    if (st.depth === 'deep') score += w.defense;
+    // 적 역 탈취: 내 수입 증가 + 상대 수입 감소의 이중 효과
+    if (info.enemyOwned) score += (1.0 + production * 0.5) * w.enemy;
+
+    // 포위 셋업: 이 역을 먹으면 인접한 적 역이 절반/무료 사정권에 들어오는가
+    let setup = 0;
+    for (const n of neighbors(id)) {
+      if (state.owners[n] !== 0) continue;
+      const sup = neighbors(n).filter((m) => m === id || state.owners[m] === AI).length;
+      if (sup >= RULES.surroundFreeAt) setup += 1.4;
+      else if (sup >= RULES.surroundHalfAt) setup += 0.7;
+    }
+    score += setup * w.setup;
+
+    if (lateGame) {
+      score = 3 / Math.max(1, info.cost) + production * 0.2 + (info.enemyOwned ? 1.5 : 0);
+    } else {
+      const d = graphDistance(id, enemyHq);
+      score += Math.max(0, 10 - d) * w.hqPressure;
+    }
+    score += Math.random() * 0.05;
+    if (!best || score > best.score) best = { id, score };
+  }
+
+  const income = effectiveIncome(state, AI);
+  const threshold = persona === 'defensive' ? 0.6 : 0.2;
+  if (!best || best.score < threshold) {
+    // 방어 행동: 적과 맞닿은 내 고가치 역 요새화 → 본진 길목 바리케이드 → 비축
+    const defense = insaneDefenseAction(state, ap);
+    if (defense) return defense;
+    if (!best || ap + income <= apCap(state, AI)) return { type: 'endTurn' };
+  }
+  return best ? { type: 'capture', station: best.id } : { type: 'endTurn' };
+}
+
+/** 전선 요새화/바리케이드 후보 (없으면 null) */
+function insaneDefenseAction(state: GameState, ap: number): Action | null {
+  const myHq = state.hq[AI];
+  // 적이 인접한 내 역 중 가치(생산+본진)가 높은 곳부터 요새화
+  if (ap >= RULES.fortifyCost + 3) {
+    let target: { id: string; value: number } | null = null;
+    for (const id of Object.keys(state.owners)) {
+      if (state.owners[id] !== AI) continue;
+      if ((state.fortifications[id] ?? 0) >= RULES.fortifyMaxLevel) continue;
+      if (!neighbors(id).some((n) => state.owners[n] === 0)) continue; // 전선만
+      const st = STATION_BY_ID[id];
+      const value = stationProduction(st, id === myHq) + (id === myHq ? 4 : 0);
+      if (value >= 4 && (!target || value > target.value)) target = { id, value };
+    }
+    if (target) return { type: 'fortify', station: target.id };
+  }
+  // 본진 옆까지 적이 왔으면 그 길목에 바리케이드
+  if (myHq && state.owners[myHq] === AI && ap >= RULES.barricadeCost + 2) {
+    for (const n of neighbors(myHq)) {
+      if (state.owners[n] !== 0) continue;
+      const key = n < myHq ? `${n}|${myHq}` : `${myHq}|${n}`;
+      if (state.barricades[key] === undefined) {
+        return { type: 'barricade', a: myHq, b: n };
+      }
+    }
+  }
+  return null;
 }

@@ -1066,6 +1066,18 @@ export const LINE_PATHS: Array<{ line: LineId; stations: string[] }> = (
   Object.keys(LINE_SEQUENCES) as LineId[]
 ).flatMap((line) => LINE_SEQUENCES[line].map((stations) => ({ line, stations })));
 
+/**
+ * 급행 정차역 (실제 운행 기준) — 급행 점프: 같은 노선의 연속한 급행
+ * 정차역끼리는 인접 취급되어 사이 역을 건너뛰고 점령을 시도할 수 있다.
+ */
+export const EXPRESS_STOPS: Partial<Record<LineId, string[]>> = {
+  '9': [
+    '김포공항', '마곡나루', '가양', '염창', '당산', '여의도', '노량진', '동작',
+    '고속터미널', '신논현', '선정릉', '봉은사', '종합운동장', '석촌', '올림픽공원',
+    '중앙보훈병원',
+  ],
+};
+
 // 한강 렌더링용 폴리라인 (도하 엣지 중점들을 지나는 곡선)
 export const RIVER_PATH: Array<[number, number]> = [
   [-360, 225],
