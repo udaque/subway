@@ -20,7 +20,7 @@ export default function LandingScreen({ onPlay, onTutorial, onChallenges }: Prop
         <button className="btn-start btn-landing btn-landing-sub" onClick={onChallenges}>
           🏆 챌린지
         </button>
-        <div className="setup-footer">{__APP_VERSION__} — made by Teeum Soft</div>
+        <div className="setup-footer">{__APP_VERSION__} — made by Pium Games</div>
       </div>
     </div>
   );
