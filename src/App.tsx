@@ -16,6 +16,7 @@ import {
   randomDraftPlan,
 } from './game/engine';
 import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
+import { captureAnnouncement, endAnnouncement, startAnnouncement } from './game/announcer';
 import { isMuted, setMuted, sfx } from './game/sound';
 import { STATIONS, STATION_BY_ID } from './data/stations';
 import type { Action, GameState, PlayerId, VictoryMode } from './game/types';
@@ -52,6 +53,9 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [barricadeFrom, setBarricadeFrom] = useState<string | null>(null);
   const [muted, setMutedState] = useState(isMuted());
+  // D1 안내방송 토스트 — 최신 멘트 하나만 유지 (큐 없음), 잠시 후 자동 소멸
+  const [announce, setAnnounce] = useState<{ id: number; text: string } | null>(null);
+  const announceIdRef = useRef(0);
 
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
@@ -66,6 +70,19 @@ export default function App() {
 
   const isAi = config?.opponent === 'ai';
   const myPlayer: PlayerId | null = net ? net.seat : null;
+
+  const say = useCallback((text: string | null) => {
+    if (text) setAnnounce({ id: ++announceIdRef.current, text });
+  }, []);
+
+  useEffect(() => {
+    if (!announce) return;
+    const t = setTimeout(
+      () => setAnnounce((a) => (a?.id === announce.id ? null : a)),
+      3600,
+    );
+    return () => clearTimeout(t);
+  }, [announce]);
 
   // ── 진행 상황 저장/복원 ─────────────────────────────────────
   // 새로고침해도 이어서 플레이할 수 있게 localStorage에 저장한다.
@@ -169,7 +186,9 @@ export default function App() {
       setEffects((e) => [...e, ...list]);
       sfx.turn();
     }
-  }, [state, isAi, net]);
+    // 개전 방송 — 새로고침 복원(진행 중인 판)에서는 생략
+    if (state.round === 1) say(startAnnouncement(state, viewer));
+  }, [state, isAi, net, say]);
 
   // e2e 테스트/디버깅용 훅 (게임 로직에는 영향 없음)
   useEffect(() => {
@@ -217,6 +236,8 @@ export default function App() {
         else if (prevOwner === null) sfx.capture();
         else if (viewer !== null && prevOwner === viewer) sfx.lost();
         else sfx.captureEnemy();
+        // 안내방송 (점령만 — 드래프트 선택은 제외)
+        if (action.type === 'capture') say(captureAnnouncement(s, action.station, viewer));
       } else if (action.type === 'fortify') {
         const st = STATION_BY_ID[action.station];
         const now = performance.now();
@@ -245,6 +266,7 @@ export default function App() {
       if (next.phase === 'over' && next.winner !== null) {
         if (next.winner === 'draw' || viewer === null || next.winner === viewer) sfx.win();
         else sfx.lose();
+        say(endAnnouncement(next, viewer));
       }
 
       setState(next);
@@ -252,7 +274,7 @@ export default function App() {
         sendActRef.current?.(action);
       }
     },
-    [],
+    [say],
   );
 
   // ── AI 턴 자동 진행 ────────────────────────────────────────
@@ -442,6 +464,7 @@ export default function App() {
     setFocus(null);
     setSelected(null);
     setBarricadeFrom(null);
+    setAnnounce(null);
     setScreen('landing');
   }, []);
 
@@ -621,6 +644,11 @@ export default function App() {
           }
         }}
       />
+      {announce && (
+        <div key={announce.id} className="announce-toast" role="status">
+          📢 {announce.text}
+        </div>
+      )}
       {state.phase === 'over' && (
         <div className="overlay">
           <div className="setup-card result-card">

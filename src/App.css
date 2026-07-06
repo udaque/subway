@@ -21,6 +21,47 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
+}
+
+/* ── D1 안내방송 토스트 ──────────────────── */
+.announce-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  max-width: min(480px, calc(100% - 24px));
+  background: rgba(17, 20, 26, 0.94);
+  border: 1px solid #3a414d;
+  border-left: 3px solid #ffd166;
+  border-radius: 11px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #e8eaed;
+  text-align: center;
+  z-index: 25;
+  pointer-events: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  animation: announce-inout 3.6s ease forwards;
+}
+
+@keyframes announce-inout {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  7% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  86% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
 }
 
 .accent {
