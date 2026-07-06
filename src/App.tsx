@@ -24,6 +24,7 @@ import './App.css';
 const AI_MOVE_DELAY = 650;
 const AI_PICK_DELAY = 800;
 const APP_ID = 'udaque-subway-territory';
+const SAVE_KEY = 'subway-save-v1';
 
 interface NetState {
   role: 'host' | 'guest';
@@ -65,6 +66,40 @@ export default function App() {
 
   const isAi = config?.opponent === 'ai';
   const myPlayer: PlayerId | null = net ? net.seat : null;
+
+  // ── 진행 상황 저장/복원 (오프라인 게임 한정) ────────────────
+  // 새로고침해도 이어서 플레이할 수 있게 localStorage에 저장한다.
+  // 배포 버전이 바뀌면 (규칙/데이터가 달라졌을 수 있으므로) 저장을 버린다.
+  useEffect(() => {
+    if (!state || !config) return;
+    if (config.opponent === 'online-host' || config.opponent === 'online-guest') return;
+    try {
+      if (state.phase === 'over') {
+        localStorage.removeItem(SAVE_KEY);
+      } else {
+        localStorage.setItem(SAVE_KEY, JSON.stringify({ v: __APP_VERSION__, config, state }));
+      }
+    } catch {
+      /* 저장 공간 부족 등은 무시 */
+    }
+  }, [state, config]);
+
+  useEffect(() => {
+    // 앱 시작 시 저장된 게임이 있으면 이어하기
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as { v: string; config: GameConfig; state: GameState };
+      if (data.v !== __APP_VERSION__ || !data.state || data.state.phase === 'over') {
+        localStorage.removeItem(SAVE_KEY);
+        return;
+      }
+      setConfig(data.config);
+      setState(data.state);
+    } catch {
+      localStorage.removeItem(SAVE_KEY);
+    }
+  }, []);
 
   // 개전 인트로: 플레이 시작 순간 적 역들의 위치를 색 펄스로 알려준다
   // (랜덤 배치는 적진 파악이 어려우므로 특히 유용)
@@ -305,6 +340,11 @@ export default function App() {
   );
 
   const restart = useCallback(() => {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      /* 무시 */
+    }
     void roomRef.current?.leave();
     roomRef.current = null;
     sendActRef.current = null;
