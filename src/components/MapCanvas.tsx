@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EDGES,
   LINE_BADGE,
@@ -111,6 +111,82 @@ const LANDMARKS: Array<{ x: number; y: number; icon: string }> = [
   { x: 1162, y: 416, icon: '🐔' }, // 춘천 닭갈비
 ];
 
+// ── 보로노이식 영향권 레이어 ────────────────────────────────
+// 각 격자 셀의 최근접 역을 1회 전처리해 두고, 셀을 그 역 소유주의 색으로
+// 칠한 저해상도 비트맵을 확대해 깐다. 경계선은 그리지 않고 거리 감쇠로
+// 가장자리가 부드럽게 사라지게 해서, 축소해도 진영의 세력권이 면으로 보인다.
+const TERR_CELL = 4; // 셀 한 변 (게임 좌표 단위)
+const TERR_MAXR = 34; // 역 하나의 영향 반경 (게임 좌표 단위)
+
+let terrGridCache: {
+  x0: number;
+  y0: number;
+  w: number;
+  h: number;
+  nearest: Int16Array;
+  dist: Float32Array;
+} | null = null;
+
+function territoryGrid() {
+  if (terrGridCache) return terrGridCache;
+  const xs = STATIONS.map((s) => s.x);
+  const ys = STATIONS.map((s) => s.y);
+  const x0 = Math.min(...xs) - TERR_MAXR;
+  const y0 = Math.min(...ys) - TERR_MAXR;
+  const w = Math.ceil((Math.max(...xs) + TERR_MAXR - x0) / TERR_CELL);
+  const h = Math.ceil((Math.max(...ys) + TERR_MAXR - y0) / TERR_CELL);
+  const nearest = new Int16Array(w * h).fill(-1);
+  const dist = new Float32Array(w * h).fill(Infinity);
+  const r = Math.ceil(TERR_MAXR / TERR_CELL);
+  STATIONS.forEach((s, si) => {
+    const ci = Math.floor((s.x - x0) / TERR_CELL);
+    const cj = Math.floor((s.y - y0) / TERR_CELL);
+    for (let j = Math.max(0, cj - r); j <= Math.min(h - 1, cj + r); j++) {
+      for (let i = Math.max(0, ci - r); i <= Math.min(w - 1, ci + r); i++) {
+        const d = Math.hypot(x0 + (i + 0.5) * TERR_CELL - s.x, y0 + (j + 0.5) * TERR_CELL - s.y);
+        const idx = j * w + i;
+        if (d < dist[idx]) {
+          dist[idx] = d;
+          nearest[idx] = si;
+        }
+      }
+    }
+  });
+  terrGridCache = { x0, y0, w, h, nearest, dist };
+  return terrGridCache;
+}
+
+const PLAYER_RGB = PLAYER_COLORS.map((c) => [
+  parseInt(c.slice(1, 3), 16),
+  parseInt(c.slice(3, 5), 16),
+  parseInt(c.slice(5, 7), 16),
+]);
+
+function buildTerritoryLayer(owners: GameState['owners']): HTMLCanvasElement {
+  const g = territoryGrid();
+  const cv = document.createElement('canvas');
+  cv.width = g.w;
+  cv.height = g.h;
+  const c = cv.getContext('2d')!;
+  const img = c.createImageData(g.w, g.h);
+  for (let idx = 0; idx < g.nearest.length; idx++) {
+    const si = g.nearest[idx];
+    if (si < 0) continue;
+    const owner = owners[STATIONS[si].id] ?? null;
+    if (owner === null) continue;
+    const t = 1 - g.dist[idx] / TERR_MAXR;
+    if (t <= 0) continue;
+    const [r, gr, b] = PLAYER_RGB[owner];
+    const o = idx * 4;
+    img.data[o] = r;
+    img.data[o + 1] = gr;
+    img.data[o + 2] = b;
+    img.data[o + 3] = Math.round(80 * Math.pow(t, 0.6));
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
 export default function MapCanvas({
   state,
   highlights,
@@ -134,6 +210,9 @@ export default function MapCanvas({
 
   const transformRef = useRef<Transform | null>(null);
   transformRef.current = transform;
+
+  // 소유 상태가 바뀔 때만 영향권 비트맵을 다시 만든다
+  const territoryLayer = useMemo(() => buildTerritoryLayer(state.owners), [state.owners]);
   const camCancelRef = useRef(false);
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -374,6 +453,14 @@ export default function MapCanvas({
     ctx.setLineDash([7 * ui, 5 * ui]);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // 영향권(보로노이식) — 소유 역 주변을 진영색으로 은은하게 채움
+    {
+      const g = territoryGrid();
+      const [gx, gy] = toScreen(g.x0, g.y0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(territoryLayer, gx, gy, g.w * TERR_CELL * S, g.h * TERR_CELL * S);
+    }
 
     // 한강
     ctx.beginPath();
@@ -651,7 +738,7 @@ export default function MapCanvas({
 
       ctx.globalAlpha = 1;
     }
-  }, [state, transform, size, hovered, highlights, selected, barricadeFrom, toScreen]);
+  }, [state, transform, size, hovered, highlights, selected, barricadeFrom, toScreen, territoryLayer]);
 
   // ── 인터랙션 ──────────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent) => {
