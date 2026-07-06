@@ -67,17 +67,32 @@ export default function App() {
   const isAi = config?.opponent === 'ai';
   const myPlayer: PlayerId | null = net ? net.seat : null;
 
-  // ── 진행 상황 저장/복원 (오프라인 게임 한정) ────────────────
+  // ── 진행 상황 저장/복원 ─────────────────────────────────────
   // 새로고침해도 이어서 플레이할 수 있게 localStorage에 저장한다.
+  // 온라인 게임은 방 코드·좌석까지 저장해 재입장(rejoin)에 사용한다.
   // 배포 버전이 바뀌면 (규칙/데이터가 달라졌을 수 있으므로) 저장을 버린다.
   useEffect(() => {
     if (!state || !config) return;
-    if (config.opponent === 'online-host' || config.opponent === 'online-guest') return;
+    const isOnline = config.opponent === 'online-host' || config.opponent === 'online-guest';
+    if (isOnline && (!netRef.current || netRef.current.playerCount === 0)) return; // 시작 전
     try {
       if (state.phase === 'over') {
         localStorage.removeItem(SAVE_KEY);
       } else {
-        localStorage.setItem(SAVE_KEY, JSON.stringify({ v: __APP_VERSION__, config, state }));
+        const n = netRef.current;
+        localStorage.setItem(
+          SAVE_KEY,
+          JSON.stringify({
+            v: __APP_VERSION__,
+            kind: isOnline ? 'online' : 'offline',
+            config,
+            state,
+            net:
+              isOnline && n
+                ? { role: n.role, code: n.code, seat: n.seat, playerCount: n.playerCount }
+                : undefined,
+          }),
+        );
       }
     } catch {
       /* 저장 공간 부족 등은 무시 */
@@ -89,16 +104,27 @@ export default function App() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return;
-      const data = JSON.parse(raw) as { v: string; config: GameConfig; state: GameState };
+      const data = JSON.parse(raw) as {
+        v: string;
+        kind?: 'online' | 'offline';
+        config: GameConfig;
+        state: GameState;
+        net?: { role: 'host' | 'guest'; code: string; seat: number; playerCount: number };
+      };
       if (data.v !== __APP_VERSION__ || !data.state || data.state.phase === 'over') {
         localStorage.removeItem(SAVE_KEY);
         return;
       }
-      setConfig(data.config);
-      setState(data.state);
+      if (data.kind === 'online' && data.net) {
+        void rejoinOnline({ config: data.config, state: data.state, net: data.net });
+      } else {
+        setConfig(data.config);
+        setState(data.state);
+      }
     } catch {
       localStorage.removeItem(SAVE_KEY);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 개전 인트로: 플레이 시작 순간 적 역들의 위치를 색 펄스로 알려준다
@@ -251,13 +277,11 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [isAiTurn, state, config, dispatch]);
 
-  // ── 온라인 방 생성/참가 ────────────────────────────────────
-  const beginOnline = useCallback(
-    async (cfg: GameConfig) => {
-      const isHost = cfg.opponent === 'online-host';
-      const code = isHost ? genRoomCode() : (cfg.joinCode ?? '').trim().toUpperCase();
-      if (!code) return;
-      // P2P 라이브러리는 온라인 모드에서만 동적 로드 (기본 번들 경량화)
+  // ── 온라인: 방 배선 (fresh/재접속 공용) ─────────────────────
+  // 재접속 프로토콜: 게임 중 피어가 연결되면 서로 hello{좌석, 로그 길이}를
+  // 교환하고, 로그가 더 긴(더 진행된) 쪽이 전체 상태를 sync로 방송한다.
+  const wireRoom = useCallback(
+    async (code: string) => {
       const { joinRoom, selfId } = await import('trystero');
       const room = joinRoom({ appId: APP_ID }, code);
       roomRef.current = room;
@@ -269,6 +293,13 @@ export default function App() {
         playerCount: number;
         seats: Record<string, number>;
       }>('start');
+      const hello = room.makeAction<{ seat: number; logLen: number }>('hello');
+      // GameState는 순수 JSON 직렬화 가능하지만 인덱스 시그니처가 없어 캐스팅
+      const sync = room.makeAction('sync') as unknown as {
+        send: (d: { state: GameState }) => Promise<void>;
+        onMessage: ((d: { state: GameState }) => void) | null;
+      };
+
       sendActRef.current = (a) => {
         void act.send(a);
       };
@@ -279,6 +310,38 @@ export default function App() {
           s ? grantInitialHarvest(actions.reduce((acc, a) => applyAction(acc, a), s)) : s,
         );
       };
+      hello.onMessage = (d) => {
+        // 재접속한 상대 확인 — 내가 더 진행된 상태면 동기화해준다
+        const s = stateRef.current;
+        setNet((n) => (n ? { ...n, status: 'connected' } : n));
+        if (s && s.log.length > d.logLen) void sync.send({ state: s });
+      };
+      sync.onMessage = ({ state: incoming }) => {
+        setNet((n) => (n ? { ...n, status: 'connected' } : n));
+        setState((s) => (!s || incoming.log.length > s.log.length ? incoming : s));
+      };
+      room.onPeerLeave = () => {
+        setNet((n) => (n ? { ...n, status: 'peer-left' } : n));
+      };
+      /** 게임 진행 중 새 피어 연결 시 상태 교환 개시 (양쪽 모두 호출) */
+      const helloIfActive = () => {
+        const s = stateRef.current;
+        if (s && s.phase !== 'over' && netRef.current) {
+          void hello.send({ seat: netRef.current.seat, logLen: s.log.length });
+        }
+      };
+      return { room, act, bulk, start, hello, sync, selfId, helloIfActive };
+    },
+    [dispatch],
+  );
+
+  // ── 온라인 방 생성/참가 (신규 게임) ─────────────────────────
+  const beginOnline = useCallback(
+    async (cfg: GameConfig) => {
+      const isHost = cfg.opponent === 'online-host';
+      const code = isHost ? genRoomCode() : (cfg.joinCode ?? '').trim().toUpperCase();
+      if (!code) return;
+      const { room, start, bulk, selfId, helloIfActive } = await wireRoom(code);
       setConfig(cfg);
       setNet({
         role: isHost ? 'host' : 'guest',
@@ -293,7 +356,10 @@ export default function App() {
         // 참가 순서대로 좌석 배정 (host = 0)
         const peerSeats: string[] = [];
         room.onPeerJoin = (peerId: string) => {
-          if (stateRef.current) return; // 시작 후 참가자는 무시
+          if (stateRef.current) {
+            helloIfActive(); // 게임 시작 후 = 재접속자
+            return;
+          }
           if (!peerSeats.includes(peerId)) peerSeats.push(peerId);
           const joined = 1 + peerSeats.length;
           setNet((n) => (n ? { ...n, joined } : n));
@@ -321,6 +387,7 @@ export default function App() {
           }
         };
       } else {
+        room.onPeerJoin = () => helloIfActive();
         start.onMessage = ({ mode, turnLimit, playerCount, seats }) => {
           if (stateRef.current) return;
           const seat = seats[selfId];
@@ -332,11 +399,31 @@ export default function App() {
           setState(createGame(mode, turnLimit, playerCount));
         };
       }
-      room.onPeerLeave = () => {
-        setNet((n) => (n ? { ...n, status: 'peer-left' } : n));
-      };
     },
-    [dispatch],
+    [wireRoom],
+  );
+
+  // ── 온라인 재접속 (저장본에서 복원 후 같은 방 재입장) ────────
+  const rejoinOnline = useCallback(
+    async (saved: {
+      config: GameConfig;
+      state: GameState;
+      net: { role: 'host' | 'guest'; code: string; seat: number; playerCount: number };
+    }) => {
+      setConfig(saved.config);
+      setState(saved.state);
+      setNet({
+        role: saved.net.role,
+        code: saved.net.code,
+        status: 'peer-left', // 상대가 확인될 때까지 조작 잠금
+        seat: saved.net.seat,
+        playerCount: saved.net.playerCount,
+        joined: 1,
+      });
+      const { room, helloIfActive } = await wireRoom(saved.net.code);
+      room.onPeerJoin = () => helloIfActive();
+    },
+    [wireRoom],
   );
 
   const restart = useCallback(() => {
@@ -447,7 +534,7 @@ export default function App() {
   const notice = barricadeFrom
     ? `🚧 ${barricadeFrom}과 이어진 역을 선택해 바리케이드를 설치하세요 (배경을 누르면 취소)`
     : net?.status === 'peer-left'
-      ? '🔌 상대와의 연결이 끊어졌습니다 — 새 게임으로 나가세요'
+      ? '🔌 상대와 연결이 끊겼어요 — 재접속(새로고침)을 기다리는 중입니다. 진행 상황은 안전합니다'
       : null;
 
   const tryBarricade = (from: string, to: string) => {
