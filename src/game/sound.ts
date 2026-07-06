@@ -99,6 +99,13 @@ export const sfx = {
     tone(220, 0.08, { type: 'square', gain: 0.06 });
     tone(330, 0.1, { when: 0.06, type: 'triangle', gain: 0.09 });
   },
+  /** 챌린지(업적) 달성 */
+  achieve(): void {
+    [659, 880, 1319].forEach((f, i) =>
+      tone(f, 0.13, { when: i * 0.09, type: 'triangle', gain: 0.12 }),
+    );
+    tone(1760, 0.22, { when: 0.3, gain: 0.07 });
+  },
   /** 승리 */
   win(): void {
     [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.17, { when: i * 0.12, gain: 0.13 }));

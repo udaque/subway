@@ -55,6 +55,30 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     desc: '직접 선택(드래프트) 모드로 시작해 승리한다',
     tier: 'bronze',
   },
+  {
+    id: 'river',
+    title: '한강의 기적',
+    desc: '한강을 건너(도하) 역을 점령한다',
+    tier: 'bronze',
+  },
+  {
+    id: 'surroundFree',
+    title: '싸우지 않고 이긴다',
+    desc: '삼중 포위로 역을 무혈입성한다',
+    tier: 'bronze',
+  },
+  {
+    id: 'barricade',
+    title: '여기까지가 끝인가 보오',
+    desc: '바리케이드를 설치한다',
+    tier: 'bronze',
+  },
+  {
+    id: 'rush5',
+    title: '폭주 기관차',
+    desc: '한 턴에 5개 역을 점령한다',
+    tier: 'bronze',
+  },
   // ── 실버 ──
   {
     id: 'capture100',
@@ -72,6 +96,24 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     id: 'allModes',
     title: '다 해본 모드들이구만',
     desc: '본진 함락전·정복전·전멸전 각각에서 한 번 이상 승리한다',
+    tier: 'silver',
+  },
+  {
+    id: 'hqCapture',
+    title: '이번 역은 종착역입니다',
+    desc: '상대의 본진을 직접 함락한다',
+    tier: 'silver',
+  },
+  {
+    id: 'transfer10',
+    title: '환승의 제왕',
+    desc: '환승역 10개를 동시에 보유한다',
+    tier: 'silver',
+  },
+  {
+    id: 'loop2',
+    title: '내선순환 한 바퀴',
+    desc: '2호선 순환선의 모든 역을 점령한다',
     tier: 'silver',
   },
   // ── 골드 ──

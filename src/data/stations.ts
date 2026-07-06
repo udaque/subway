@@ -795,7 +795,7 @@ export const STATION_BY_ID: Record<string, Station> = Object.fromEntries(
 );
 
 // 노선별 역 순서 (엣지 생성용). 노선 하나가 본선/지선/순환 등 복수 경로를 가질 수 있다.
-const LINE_SEQUENCES: Record<LineId, string[][]> = {
+export const LINE_SEQUENCES: Record<LineId, string[][]> = {
   '1': [
     [
       '연천', '전곡', '청산', '소요산', '동두천', '보산', '동두천중앙', '지행', '덕정',

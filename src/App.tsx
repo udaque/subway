@@ -11,6 +11,7 @@ import {
   applyAction,
   canDraftPick,
   capturableStations,
+  captureInfo,
   createGame,
   grantInitialHarvest,
   ownedStations,
@@ -20,9 +21,12 @@ import { aiDraftAction, aiNextAction, DIFFICULTY_LABEL } from './game/ai';
 import { recordModeWin, unlock, type AchievementDef } from './game/achievements';
 import { captureAnnouncement, endAnnouncement, startAnnouncement } from './game/announcer';
 import { isMuted, setMuted, sfx } from './game/sound';
-import { STATIONS, STATION_BY_ID } from './data/stations';
+import { LINE_SEQUENCES, STATIONS, STATION_BY_ID } from './data/stations';
 import type { Action, GameState, PlayerId, VictoryMode } from './game/types';
 import './App.css';
+
+/** 2호선 순환 본선 역들 ('내선순환 한 바퀴' 챌린지 판정용) */
+const LOOP2_STATIONS = new Set(LINE_SEQUENCES['2'][0]);
 
 const AI_MOVE_DELAY = 650;
 const AI_PICK_DELAY = 800;
@@ -60,6 +64,9 @@ export default function App() {
   // D1 안내방송 토스트 — 최신 멘트 하나만 유지 (큐 없음), 잠시 후 자동 소멸
   const [announce, setAnnounce] = useState<{ id: number; text: string } | null>(null);
   const announceIdRef = useRef(0);
+  // 챌린지 달성 토스트 (화면 상단) + 한 턴 점령 수 카운터
+  const [achToast, setAchToast] = useState<{ id: number; text: string } | null>(null);
+  const captureStreakRef = useRef(0);
 
   const stateRef = useRef<GameState | null>(null);
   stateRef.current = state;
@@ -87,6 +94,12 @@ export default function App() {
     );
     return () => clearTimeout(t);
   }, [announce]);
+
+  useEffect(() => {
+    if (!achToast) return;
+    const t = setTimeout(() => setAchToast((a) => (a?.id === achToast.id ? null : a)), 4200);
+    return () => clearTimeout(t);
+  }, [achToast]);
 
   // ── 진행 상황 저장/복원 ─────────────────────────────────────
   // 새로고침해도 이어서 플레이할 수 있게 localStorage에 저장한다.
@@ -273,13 +286,42 @@ export default function App() {
         say(endAnnouncement(next, viewer));
       }
 
-      // ── 챌린지 달성 체크 (시점 플레이어가 있는 게임만 — 로컬 2인 제외) ──
+      // ── 챌린지 달성 체크 — 조건이 충족되는 바로 그 액션에서 판정
+      //    (시점 플레이어가 있는 게임만 — 로컬 2인 제외)
       if (viewer !== null) {
         const newly: Array<AchievementDef | null> = [];
-        const owned = ownedStations(next, viewer).length;
-        if (owned >= 20) newly.push(unlock('capture20'));
-        if (owned >= 100) newly.push(unlock('capture100'));
-        if (owned >= STATIONS.length) newly.push(unlock('captureAll'));
+        const myAction = s.current === viewer;
+
+        // 액션 자체로 달성되는 것들
+        if (action.type === 'capture' && myAction) {
+          const info = captureInfo(s, action.station);
+          const prevOwner = s.owners[action.station] ?? null;
+          if (info?.viaRiver) newly.push(unlock('river'));
+          if (info?.cost === 0) newly.push(unlock('surroundFree'));
+          if (prevOwner !== null && s.hq[prevOwner] === action.station)
+            newly.push(unlock('hqCapture'));
+          captureStreakRef.current++;
+          if (captureStreakRef.current >= 5) newly.push(unlock('rush5'));
+        } else if (action.type === 'endTurn' && myAction) {
+          captureStreakRef.current = 0;
+        } else if (action.type === 'barricade' && myAction) {
+          newly.push(unlock('barricade'));
+        }
+
+        // 보유 상태로 달성되는 것들
+        const mine = ownedStations(next, viewer);
+        if (mine.length >= 20) newly.push(unlock('capture20'));
+        if (mine.length >= 100) newly.push(unlock('capture100'));
+        if (mine.length >= STATIONS.length) newly.push(unlock('captureAll'));
+        if (mine.filter((id) => STATION_BY_ID[id].lines.length >= 2).length >= 10)
+          newly.push(unlock('transfer10'));
+        if (
+          mine.length >= LOOP2_STATIONS.size &&
+          [...LOOP2_STATIONS].every((id) => next.owners[id] === viewer)
+        )
+          newly.push(unlock('loop2'));
+
+        // 게임 종료로 달성되는 것들
         if (next.phase === 'over') {
           if (netRef.current) newly.push(unlock('online'));
           if (next.winner === viewer) {
@@ -290,9 +332,14 @@ export default function App() {
             newly.push(recordModeWin(next.mode));
           }
         }
+
         const got = newly.filter((a): a is AchievementDef => a !== null);
         if (got.length > 0) {
-          say(`🏆 챌린지 달성 — ${got.map((a) => a.title).join(' · ')}`);
+          setAchToast({
+            id: ++announceIdRef.current,
+            text: got.map((a) => `“${a.title}”`).join(' · '),
+          });
+          sfx.achieve();
         }
       }
 
@@ -492,6 +539,8 @@ export default function App() {
     setSelected(null);
     setBarricadeFrom(null);
     setAnnounce(null);
+    setAchToast(null);
+    captureStreakRef.current = 0;
     setScreen('landing');
   }, []);
 
@@ -681,6 +730,11 @@ export default function App() {
       {announce && (
         <div key={announce.id} className="announce-toast" role="status">
           📢 {announce.text}
+        </div>
+      )}
+      {achToast && (
+        <div key={achToast.id} className="achieve-toast" role="status">
+          🏆 챌린지 달성! {achToast.text}
         </div>
       )}
       {state.phase === 'over' && (
