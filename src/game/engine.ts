@@ -45,12 +45,13 @@ export const RULES = {
   defaultTurnLimit: 20,
   /** 수확 체감 지수: 실수령 = ⌈원수입^지수⌉ (후반 AP 인플레 완화) */
   incomeExponent: 0.8,
-  /** 요새화: 비용 / 역당 최대 레벨 (레벨당 방어 +1) */
+  /** 요새화: 비용 / 역당 최대 횟수 / 1회당 방어 — 부수는 쪽이 설치(3AP)보다 비싸도록 +4 */
   fortifyCost: 3,
   fortifyMaxLevel: 2,
-  /** 바리케이드: 설치 비용 / 해당 구간 통과 공격 가산 (뚫리면 소멸) */
+  fortifyDefensePerLevel: 4,
+  /** 바리케이드: 설치 비용 / 통과 공격 가산 — 돌파(+4)가 설치(3AP)보다 비싸도록 */
   barricadeCost: 3,
-  barricadeSurcharge: 3,
+  barricadeSurcharge: 4,
 };
 
 /** 엣지 키 (방향 무관) */
@@ -75,7 +76,10 @@ export function stationDefense(st: Station, isHq: boolean): number {
 export function defenseOf(state: GameState, id: string): number {
   const st = STATION_BY_ID[id];
   if (!st) return 0;
-  return stationDefense(st, isHqStation(state, id)) + (state.fortifications[id] ?? 0);
+  return (
+    stationDefense(st, isHqStation(state, id)) +
+    (state.fortifications[id] ?? 0) * RULES.fortifyDefensePerLevel
+  );
 }
 
 export function isHqStation(state: GameState, id: string): boolean {
@@ -480,7 +484,7 @@ export function applyAction(state: GameState, action: Action): GameState {
         fortifications: { ...state.fortifications, [action.station]: level + 1 },
         log: [
           ...state.log,
-          `P${player + 1} 요새화: ${action.station} +${level + 1} (-${RULES.fortifyCost}AP)`,
+          `P${player + 1} 요새화: ${action.station} Lv.${level + 1} (방어 +${RULES.fortifyDefensePerLevel}, -${RULES.fortifyCost}AP)`,
         ],
       };
     }

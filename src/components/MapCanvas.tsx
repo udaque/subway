@@ -936,7 +936,7 @@ export default function MapCanvas({
             <span className="legend-river">⚔</span> 포위: 적 역이 내 역 {RULES.surroundHalfAt}곳과 인접 → ½, {RULES.surroundFreeAt}곳 이상 → 무료
           </div>
           <div className="legend-row">
-            <span className="legend-river">⬡</span> 육각 테두리 = 요새화(내 역): 방어 +1, 최대 +{RULES.fortifyMaxLevel} · {RULES.fortifyCost}AP — 뺏기면 파괴
+            <span className="legend-river">⬡</span> 육각 테두리 = 요새화(내 역): 방어 +{RULES.fortifyDefensePerLevel}/회, 최대 {RULES.fortifyMaxLevel}회 · {RULES.fortifyCost}AP — 뺏기면 파괴
           </div>
           <div className="legend-row">
             <span className="legend-river">✕</span> 구간 위 ✕ = 바리케이드: 그 구간 공격 +{RULES.barricadeSurcharge}AP · 뚫리면 소멸

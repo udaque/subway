@@ -197,8 +197,8 @@ const STEPS: TutStep[] = [
   {
     title: '요새화 — 내 역 지키기',
     text:
-      `AP는 방어에도 씁니다. 내 역에 ${RULES.fortifyCost}AP를 투자하면 방어 +1 ` +
-      `(역당 최대 +${RULES.fortifyMaxLevel}). 빨간 내 역을 눌러 요새화해보세요! ` +
+      `AP는 방어에도 씁니다. 내 역에 ${RULES.fortifyCost}AP를 투자하면 방어 +${RULES.fortifyDefensePerLevel} ` +
+      `(역당 최대 ${RULES.fortifyMaxLevel}회). 빨간 내 역을 눌러 요새화해보세요! ` +
       `(실전에서는 내 역을 누르면 나오는 패널에서 실행합니다)`,
     ap: 3,
     kind: 'fortify',
@@ -209,7 +209,7 @@ const STEPS: TutStep[] = [
     edges: [['내 요충지', '적 전초']],
     goal: '내 요충지',
     success:
-      '육각 테두리 = 요새. 이 역의 점령 비용이 1 비싸졌어요. 단, 뺏기면 요새는 파괴됩니다.',
+      `육각 테두리 = 요새. 이 역의 점령 비용이 ${RULES.fortifyDefensePerLevel} 비싸졌어요 — 설치(${RULES.fortifyCost}AP)보다 부수는 쪽이 더 비쌉니다. 단, 뺏기면 요새는 파괴됩니다.`,
     blockHints: {
       '적 전초': '지금은 방어를 다질 시간! 빨간 내 역을 눌러 요새화하세요.',
     },
