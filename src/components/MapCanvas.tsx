@@ -998,10 +998,10 @@ export default function MapCanvas({
                 {hoveredCap.enemyOwned && ` + 적 점령지 ${RULES.enemyOwnedSurcharge}`}
                 {hoveredCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 한강 도하`}
                 {hoveredCap.viaExpress && ' · 🚄급행 점프'}
+                {hoveredCap.escalation > 0 && ` + 연속 점령 ${hoveredCap.escalation}`}
                 {hoveredCap.enemyOwned &&
                   hoveredCap.supporters >= RULES.surroundHalfAt &&
                   ` → 포위 ${hoveredCap.supporters}방향 ${hoveredCap.supporters >= RULES.surroundFreeAt ? '무료' : '½ (내림)'}`}
-                {hoveredCap.escalation > 0 && ` + 연속 점령 ${hoveredCap.escalation}`}
                 {hoveredCap.eventDiscount > 0 && ` − 급행 이벤트 ${hoveredCap.eventDiscount}`}
               </div>
             </div>
@@ -1068,10 +1068,10 @@ export default function MapCanvas({
                 {selCap.enemyOwned && ` + 적 ${RULES.enemyOwnedSurcharge}`}
                 {selCap.viaRiver && ` → ×${RULES.riverCostMultiplier} 도하`}
                 {selCap.viaExpress && ' · 🚄급행 점프'}
+                {selCap.escalation > 0 && ` + 연속 점령 ${selCap.escalation}`}
                 {selCap.enemyOwned &&
                   selCap.supporters >= RULES.surroundHalfAt &&
                   ` → 포위 ${selCap.supporters >= RULES.surroundFreeAt ? '무료' : '½'}`}
-                {selCap.escalation > 0 && ` + 연속 점령 ${selCap.escalation}`}
                 {selCap.eventDiscount > 0 && ` − 급행 이벤트 ${selCap.eventDiscount}`}
               </div>
               <button

@@ -209,13 +209,16 @@ export function captureInfo(state: GameState, target: string): CaptureInfo | nul
   if (best === null) return null;
 
   let cost = best.cost;
+  const surroundFree = enemyOwned && supporters >= RULES.surroundFreeAt;
+  // 연속 점령 체증 — 포위 절반(½)보다 먼저 더하고, 그 다음 절반을 적용
+  // (2026-07-06 사용자 지시: "절반 후 가산"이 아니라 "가산 후 절반").
+  // 무료(3방향 포위) 점령에는 여전히 붙지 않는다.
+  const escalation = surroundFree ? 0 : state.capturesThisTurn * RULES.captureEscalation;
+  cost += escalation;
   if (enemyOwned) {
-    if (supporters >= RULES.surroundFreeAt) cost = 0;
+    if (surroundFree) cost = 0;
     else if (supporters >= RULES.surroundHalfAt) cost = Math.floor(cost / 2);
   }
-  // 연속 점령 체증 — 무료(포위) 점령에는 붙지 않는다
-  const escalation = cost > 0 ? state.capturesThisTurn * RULES.captureEscalation : 0;
-  cost += escalation;
   // 급행 운행 이벤트: 대상 노선 점령 할인 (최소 1AP)
   const ev = activeEvent(state);
   let eventDiscount = 0;
